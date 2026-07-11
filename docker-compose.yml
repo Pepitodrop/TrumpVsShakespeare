@@ -12,6 +12,9 @@ services:
       TVS_ROOM_TTL_SECONDS: ${TVS_ROOM_TTL_SECONDS:-7200}
       TVS_MAX_ROOMS: ${TVS_MAX_ROOMS:-1000}
       TVS_ENABLE_DOCS: ${TVS_ENABLE_DOCS:-false}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      WS_MAX_SIZE: ${WS_MAX_SIZE:-65536}
+      WS_MAX_QUEUE: ${WS_MAX_QUEUE:-16}
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777

@@ -111,11 +111,11 @@ class GameEngine:
             self._log("system", "The curtain falls after fifty rounds. The duel is a draw.")
             return
 
-        guard_decay = max(0, initiative["Hamlet"])
-        max_energy = max(6, initiative["Ophelia"])
+        guard_decay = initiative["Hamlet"]
+        max_energy = initiative["Ophelia"]
         for side, regen_key in (("trump", "Romeo"), ("shakespeare", "Juliet")):
             fighter = self.state.fighters[side]
-            fighter.energy = min(max_energy, fighter.energy + max(0, initiative[regen_key]))
+            fighter.energy = min(max_energy, fighter.energy + initiative[regen_key])
             fighter.guard = max(0, fighter.guard - guard_decay)
         self.state.round += 1
 
@@ -168,7 +168,16 @@ class GameEngine:
         required = {"Chorus", "Romeo", "Juliet", "Hamlet", "Ophelia"}
         if not required.issubset(result.values):
             raise RuntimeError("SPL stage manager did not produce every required value")
-        return result.values
+        values = result.values
+        if values["Chorus"] != trump_initiative - shakespeare_initiative:
+            raise RuntimeError("SPL stage manager produced an invalid initiative delta")
+        if not 0 <= values["Romeo"] <= 10 or not 0 <= values["Juliet"] <= 10:
+            raise RuntimeError("SPL stage manager produced invalid energy regeneration")
+        if not 0 <= values["Hamlet"] <= 10:
+            raise RuntimeError("SPL stage manager produced invalid guard decay")
+        if not 6 <= values["Ophelia"] <= 20:
+            raise RuntimeError("SPL stage manager produced an invalid maximum energy")
+        return values
 
     def _roll(self, upper: int) -> int:
         self.seed = self.assembly.next_random(self.seed)
@@ -187,3 +196,21 @@ class GameEngine:
     @staticmethod
     def _display(side: str) -> str:
         return "Trump" if side == "trump" else "Shakespeare"
+
+
+def validate_runtime_stack(assembly: AssemblyCombatRuntime) -> dict[str, str]:
+    """Fail startup unless every mandatory execution layer behaves as expected."""
+
+    probe = GameEngine("PROBE0", assembly, seed=1)
+    if len(probe.moves) != 8:
+        raise RuntimeError("The executable move catalog is incomplete")
+    stage = probe._stage_manager(7, 5)
+    if stage["Chorus"] != 2:
+        raise RuntimeError("The SPL stage manager failed its startup probe")
+    if assembly.next_random(1) == 0:
+        raise RuntimeError("The Assembly random generator failed its startup probe")
+    if not assembly.hit(100, 99) or assembly.hit(0, 0):
+        raise RuntimeError("The Assembly hit checker failed its startup probe")
+    if assembly.compute_damage(10, 0, 50, 10) != 9:
+        raise RuntimeError("The Assembly damage routine failed its startup probe")
+    return {"moves": "8", "stage": "validated", "native": assembly.path.name}

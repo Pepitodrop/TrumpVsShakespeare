@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -28,6 +29,7 @@ class Room:
     seats: dict[Side, str] = field(default_factory=dict)
     sockets: list[WebSocket] = field(default_factory=list)
     rematch_votes: set[Side] = field(default_factory=set)
+    broadcast_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     created_at: float = field(default_factory=time.monotonic)
     touched_at: float = field(default_factory=time.monotonic)
 
@@ -36,10 +38,27 @@ class Room:
 
 
 class RoomManager:
-    def __init__(self, assembly: AssemblyCombatRuntime, ttl_seconds: int = 7200, max_rooms: int = 1000):
+    def __init__(
+        self,
+        assembly: AssemblyCombatRuntime,
+        ttl_seconds: int = 7200,
+        max_rooms: int = 1000,
+        max_sockets_per_room: int = 6,
+        send_timeout_seconds: float = 3.0,
+    ):
+        if ttl_seconds < 60:
+            raise ValueError("Room TTL must be at least 60 seconds")
+        if max_rooms < 1:
+            raise ValueError("Maximum rooms must be positive")
+        if max_sockets_per_room < 2:
+            raise ValueError("Maximum sockets per room must allow both players")
+        if send_timeout_seconds <= 0:
+            raise ValueError("Socket send timeout must be positive")
         self.assembly = assembly
         self.ttl_seconds = ttl_seconds
         self.max_rooms = max_rooms
+        self.max_sockets_per_room = max_sockets_per_room
+        self.send_timeout_seconds = send_timeout_seconds
         self.rooms: dict[str, Room] = {}
         self._lock = asyncio.Lock()
 
@@ -122,15 +141,23 @@ class RoomManager:
                 raise RoomError("Invalid room token")
             room.touched_at = time.monotonic()
 
-    async def connect(self, code: str, token: str, socket: WebSocket) -> tuple[Room, list[Side]]:
+    async def authorize(self, code: str, token: str) -> tuple[Room, list[Side]]:
         async with self._lock:
             room = self._get_locked(code)
             sides = room.sides_for(token)
             if not sides:
                 raise RoomError("Invalid room token")
-            room.sockets.append(socket)
             room.touched_at = time.monotonic()
             return room, sides
+
+    async def register(self, room: Room, socket: WebSocket) -> None:
+        async with self._lock:
+            if self.rooms.get(room.code) is not room:
+                raise RoomError("Room not found or expired")
+            if len(room.sockets) >= self.max_sockets_per_room:
+                raise RoomError("This room has too many active connections")
+            room.sockets.append(socket)
+            room.touched_at = time.monotonic()
 
     async def disconnect(self, room: Room, socket: WebSocket) -> None:
         async with self._lock:
@@ -139,26 +166,39 @@ class RoomManager:
             room.touched_at = time.monotonic()
 
     async def broadcast(self, room: Room) -> None:
-        stale: list[WebSocket] = []
-        payload = {
-            "type": "state",
-            "state": room.engine.public_state(),
-            "rematch_votes": sorted(room.rematch_votes),
-        }
-        for socket in list(room.sockets):
-            try:
-                await socket.send_json(payload)
-            except Exception:
-                stale.append(socket)
-        if stale:
+        async with room.broadcast_lock:
             async with self._lock:
-                for socket in stale:
-                    if socket in room.sockets:
-                        room.sockets.remove(socket)
+                if self.rooms.get(room.code) is not room:
+                    return
+                sockets = list(room.sockets)
+                payload = {
+                    "type": "state",
+                    "state": room.engine.public_state(),
+                    "rematch_votes": sorted(room.rematch_votes),
+                }
+
+            stale: list[WebSocket] = []
+            for socket in sockets:
+                try:
+                    await asyncio.wait_for(
+                        socket.send_json(payload),
+                        timeout=self.send_timeout_seconds,
+                    )
+                except Exception:
+                    stale.append(socket)
+            if stale:
+                async with self._lock:
+                    for socket in stale:
+                        if socket in room.sockets:
+                            room.sockets.remove(socket)
 
     async def cleanup(self) -> None:
         async with self._lock:
-            self._purge_locked()
+            expired = self._purge_locked()
+        for room in expired:
+            for socket in list(room.sockets):
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(socket.close(code=4408), timeout=self.send_timeout_seconds)
 
     def snapshot_for(self, room: Room, token: str) -> dict[str, object]:
         return self._snapshot(room, room.sides_for(token))
@@ -185,8 +225,9 @@ class RoomManager:
                 return code
         raise RoomError("Could not allocate a room code")
 
-    def _purge_locked(self) -> None:
+    def _purge_locked(self) -> list[Room]:
         now = time.monotonic()
-        expired = [code for code, room in self.rooms.items() if now - room.touched_at > self.ttl_seconds]
-        for code in expired:
-            del self.rooms[code]
+        expired = [room for room in self.rooms.values() if now - room.touched_at > self.ttl_seconds]
+        for room in expired:
+            self.rooms.pop(room.code, None)
+        return expired

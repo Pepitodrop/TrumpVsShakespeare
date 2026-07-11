@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import WebSocket
 
-from trump_vs_shakespeare.game.engine import GameEngine, GameRuleError
+from trump_vs_shakespeare.game.engine import GameEngine
 from trump_vs_shakespeare.models import Side
 from trump_vs_shakespeare.runtimes.assembly import AssemblyCombatRuntime
 

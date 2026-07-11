@@ -29,7 +29,7 @@ class AssemblyCombatRuntime:
         self._lib.tvs_compute_damage.restype = ctypes.c_int32
 
     @classmethod
-    def discover(cls) -> "AssemblyCombatRuntime":
+    def discover(cls) -> AssemblyCombatRuntime:
         candidates = []
         if configured := os.getenv("TVS_NATIVE_LIB"):
             candidates.append(Path(configured))

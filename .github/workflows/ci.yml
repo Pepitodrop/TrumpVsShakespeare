@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build production image
-        run: docker build --progress=plain --tag trump-vs-shakespeare:ci .
+        run: docker build --quiet --tag trump-vs-shakespeare:ci .
       - name: Verify image security defaults
         run: |
           test "$(docker image inspect trump-vs-shakespeare:ci --format '{{.Config.User}}')" = "game"

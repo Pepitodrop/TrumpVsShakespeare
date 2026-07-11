@@ -5,7 +5,7 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc binutils \
+    && apt-get install -y --no-install-recommends gcc binutils libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md LICENSE ./

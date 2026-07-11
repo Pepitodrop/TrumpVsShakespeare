@@ -1,0 +1,40 @@
+The Greatest Combat Program Ever Written.
+
+executive_order_name is "Executive Order"
+executive_order_description is "A fast signature strike with reliable polling numbers."
+executive_order_damage is 14000000
+executive_order_cost is 2000000
+executive_order_accuracy is 92000000
+executive_order_priority is 2000000
+executive_order_guard is lie
+executive_order_heal is lie
+
+border_wall_name is "Tremendous Wall"
+border_wall_description is "Builds defense first, then sends a small counterattack."
+border_wall_damage is 5000000
+border_wall_cost is 2000000
+border_wall_accuracy is 100000000
+border_wall_priority is 5000000
+border_wall_guard is 14000000
+border_wall_heal is lie
+
+covfefe_cannon_name is "Covfefe Cannon"
+covfefe_cannon_description is "A huge, unpredictable blast of late-night rhetoric."
+covfefe_cannon_damage is 22000000
+covfefe_cannon_cost is 4000000
+covfefe_cannon_accuracy is 75000000
+covfefe_cannon_priority is lie
+covfefe_cannon_guard is lie
+covfefe_cannon_heal is lie
+
+art_of_deal_name is "Art of the Deal"
+art_of_deal_description is "Converts momentum into health while closing the deal."
+art_of_deal_damage is 9000000
+art_of_deal_cost is 3000000
+art_of_deal_accuracy is 95000000
+art_of_deal_priority is 3000000
+art_of_deal_guard is lie
+art_of_deal_heal is 10000000
+
+say "The TrumpScript arsenal is tremendous."
+America is great.

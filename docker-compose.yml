@@ -1,0 +1,21 @@
+services:
+  game:
+    build:
+      context: .
+    image: trump-vs-shakespeare:1.0.0
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8000:8000"
+    environment:
+      TVS_ALLOWED_ORIGINS: ${TVS_ALLOWED_ORIGINS:-}
+      TVS_ROOM_TTL_SECONDS: ${TVS_ROOM_TTL_SECONDS:-7200}
+      TVS_MAX_ROOMS: ${TVS_MAX_ROOMS:-1000}
+      TVS_ENABLE_DOCS: ${TVS_ENABLE_DOCS:-false}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

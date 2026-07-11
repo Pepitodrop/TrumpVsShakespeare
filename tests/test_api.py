@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from trump_vs_shakespeare.web.app import create_app
@@ -9,10 +10,22 @@ def _authorization(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_health_and_local_room_flow() -> None:
+def test_health_readiness_security_and_local_room_flow() -> None:
     with TestClient(create_app()) as client:
         health = client.get("/healthz")
         assert health.status_code == 200
+        assert health.json()["version"] == "1.0.0"
+
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+        assert ready.json()["status"] == "ready"
+        assert ready.json()["moves"] == "8"
+        assert ready.json()["stage"] == "validated"
+        assert ready.json()["native"] == "libcombat.so"
+        assert ready.headers["x-frame-options"] == "DENY"
+        assert "connect-src 'self'" in ready.headers["content-security-policy"]
+        assert " ws:" not in ready.headers["content-security-policy"]
+
         created = client.post("/api/rooms", json={"mode": "local"})
         assert created.status_code == 200
         assert created.headers["cache-control"] == "no-store"
@@ -32,6 +45,12 @@ def test_health_and_local_room_flow() -> None:
             headers=_authorization(payload["token"]),
         )
         assert state.status_code == 200
+
+
+def test_invalid_runtime_configuration_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TVS_MAX_ROOMS", "0")
+    with pytest.raises(RuntimeError, match="TVS_MAX_ROOMS must be at least 1"):
+        create_app()
 
 
 def test_local_websocket_resolves_a_round_without_exposing_token_in_url() -> None:

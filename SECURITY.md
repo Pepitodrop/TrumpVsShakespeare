@@ -18,8 +18,10 @@ Include the affected version, reproduction steps, impact, and any suggested miti
 - Run a single application worker for v1.0.x.
 - Do not expose API documentation unless needed.
 - Restrict `TVS_ALLOWED_ORIGINS` when the API and browser are deployed separately.
-- Configure reverse-proxy logs to omit WebSocket query strings.
+- Set `FORWARDED_ALLOW_IPS` only to the exact reverse-proxy IP or trusted CIDR; never use `*` on an internet-facing deployment.
+- Room credentials are sent in an `Authorization` header and a WebSocket subprotocol, not in URLs. Do not configure proxies to log either credential-bearing header.
 - Keep the container unprivileged and retain its read-only filesystem and dropped capabilities.
+- Apply an infrastructure-level request rate limit to room creation and room joining on public deployments.
 
 ## Language-runtime safety
 

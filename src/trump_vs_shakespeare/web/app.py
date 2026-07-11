@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import re
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
@@ -15,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from trump_vs_shakespeare import __version__
-from trump_vs_shakespeare.game.engine import GameRuleError
+from trump_vs_shakespeare.game.engine import GameRuleError, validate_runtime_stack
 from trump_vs_shakespeare.runtimes.assembly import AssemblyCombatRuntime
 from trump_vs_shakespeare.web.rooms import RoomError, RoomManager
 
@@ -51,12 +54,39 @@ def _websocket_token(websocket: WebSocket) -> tuple[str, str] | None:
     return None
 
 
+def _positive_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError as error:
+        raise RuntimeError(f"{name} must be an integer") from error
+    if value < minimum:
+        raise RuntimeError(f"{name} must be at least {minimum}")
+    return value
+
+
+def _positive_float(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError as error:
+        raise RuntimeError(f"{name} must be numeric") from error
+    if value <= 0:
+        raise RuntimeError(f"{name} must be positive")
+    return value
+
+
 def create_app() -> FastAPI:
     assembly = AssemblyCombatRuntime.discover()
+    runtime_status = validate_runtime_stack(assembly)
+    socket_send_timeout = _positive_float("TVS_SOCKET_SEND_TIMEOUT_SECONDS", 3.0)
+    websocket_idle_timeout = _positive_float("TVS_WS_IDLE_TIMEOUT_SECONDS", 60.0)
+    websocket_rate_limit = _positive_int("TVS_WS_MESSAGES_PER_WINDOW", 40)
+    websocket_rate_window = _positive_float("TVS_WS_RATE_WINDOW_SECONDS", 10.0)
     manager = RoomManager(
         assembly=assembly,
-        ttl_seconds=int(os.getenv("TVS_ROOM_TTL_SECONDS", "7200")),
-        max_rooms=int(os.getenv("TVS_MAX_ROOMS", "1000")),
+        ttl_seconds=_positive_int("TVS_ROOM_TTL_SECONDS", 7200, minimum=60),
+        max_rooms=_positive_int("TVS_MAX_ROOMS", 1000),
+        max_sockets_per_room=_positive_int("TVS_MAX_SOCKETS_PER_ROOM", 6, minimum=2),
+        send_timeout_seconds=socket_send_timeout,
     )
 
     @asynccontextmanager
@@ -69,6 +99,7 @@ def create_app() -> FastAPI:
         task = asyncio.create_task(janitor(), name="room-janitor")
         app.state.rooms = manager
         app.state.assembly = assembly
+        app.state.runtime_status = runtime_status
         try:
             yield
         finally:
@@ -102,11 +133,12 @@ def create_app() -> FastAPI:
     async def security_headers(request: Request, call_next):
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; connect-src 'self' ws: wss:; "
+            "default-src 'self'; connect-src 'self'; "
             "img-src 'self' data:; style-src 'self'; script-src 'self'; "
             "font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         )
         response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
@@ -123,7 +155,7 @@ def create_app() -> FastAPI:
 
     @app.get("/readyz")
     async def ready() -> dict[str, str]:
-        return {"status": "ready", "native": assembly.path.name}
+        return {"status": "ready", **runtime_status}
 
     @app.post("/api/rooms")
     async def create_room(payload: CreateRoomRequest) -> dict[str, object]:
@@ -172,32 +204,61 @@ def create_app() -> FastAPI:
         selected_protocol, token = credentials
 
         try:
-            room, sides = await manager.connect(code, token, websocket)
+            room, sides = await manager.authorize(code, token)
         except RoomError as error:
             await websocket.close(code=4403, reason=str(error))
             return
 
         await websocket.accept(subprotocol=selected_protocol)
-        await websocket.send_json(
-            {
-                "type": "hello",
-                "room_code": room.code,
-                "mode": room.mode,
-                "controlled_sides": sides,
-                "rematch_votes": sorted(room.rematch_votes),
-                "state": room.engine.public_state(),
-            }
-        )
-        await manager.broadcast(room)
+        registered = False
         try:
+            snapshot = await manager.state(room.code, token)
+            async with room.broadcast_lock:
+                await asyncio.wait_for(
+                    websocket.send_json(
+                        {
+                            "type": "hello",
+                            "room_code": room.code,
+                            "mode": snapshot["mode"],
+                            "controlled_sides": sides,
+                            "rematch_votes": snapshot["rematch_votes"],
+                            "state": snapshot["state"],
+                        }
+                    ),
+                    timeout=socket_send_timeout,
+                )
+            await manager.register(room, websocket)
+            registered = True
+            await manager.broadcast(room)
+
+            message_times: deque[float] = deque()
             while True:
                 try:
-                    message = await websocket.receive_json()
-                except (TypeError, ValueError):
-                    await websocket.send_json({"type": "error", "message": "Message must be valid JSON"})
+                    raw_message = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=websocket_idle_timeout,
+                    )
+                except TimeoutError:
+                    await websocket.close(code=4408, reason="Connection was idle")
+                    break
+
+                now = time.monotonic()
+                while message_times and now - message_times[0] > websocket_rate_window:
+                    message_times.popleft()
+                message_times.append(now)
+                if len(message_times) > websocket_rate_limit:
+                    await websocket.close(code=4429, reason="Too many messages")
+                    break
+
+                try:
+                    message = json.loads(raw_message)
+                except json.JSONDecodeError:
+                    async with room.broadcast_lock:
+                        await websocket.send_json({"type": "error", "message": "Message must be valid JSON"})
                     continue
                 if not isinstance(message, dict):
-                    await websocket.send_json({"type": "error", "message": "Message must be a JSON object"})
+                    async with room.broadcast_lock:
+                        await websocket.send_json({"type": "error", "message": "Message must be a JSON object"})
                     continue
                 message_type = message.get("type")
                 try:
@@ -213,18 +274,21 @@ def create_app() -> FastAPI:
                         await manager.restart(room.code, token)
                     elif message_type == "ping":
                         await manager.touch(room.code, token)
-                        await websocket.send_json({"type": "pong"})
+                        async with room.broadcast_lock:
+                            await websocket.send_json({"type": "pong"})
                         continue
                     else:
                         raise RoomError("Unsupported message type")
                 except (RoomError, GameRuleError) as error:
-                    await websocket.send_json({"type": "error", "message": str(error)})
+                    async with room.broadcast_lock:
+                        await websocket.send_json({"type": "error", "message": str(error)})
                     continue
                 await manager.broadcast(room)
-        except (WebSocketDisconnect, RuntimeError):
+        except (WebSocketDisconnect, RuntimeError, RoomError):
             pass
         finally:
-            await manager.disconnect(room, websocket)
+            if registered:
+                await manager.disconnect(room, websocket)
 
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest() -> FileResponse:

@@ -27,6 +27,7 @@ class Room:
     engine: GameEngine
     seats: dict[Side, str] = field(default_factory=dict)
     sockets: list[WebSocket] = field(default_factory=list)
+    rematch_votes: set[Side] = field(default_factory=set)
     created_at: float = field(default_factory=time.monotonic)
     touched_at: float = field(default_factory=time.monotonic)
 
@@ -97,12 +98,28 @@ class RoomManager:
             room.engine.submit(side, move_id)
             room.touched_at = time.monotonic()
 
-    async def restart(self, code: str, token: str) -> None:
+    async def restart(self, code: str, token: str) -> bool:
+        async with self._lock:
+            room = self._get_locked(code)
+            sides = room.sides_for(token)
+            if not sides:
+                raise RoomError("Invalid room token")
+            if room.engine.state.status != "finished":
+                raise RoomError("A rematch can only be requested after the duel ends")
+            room.rematch_votes.update(sides)
+            required = set(room.seats)
+            restarted = required.issubset(room.rematch_votes)
+            if restarted:
+                room.engine.restart()
+                room.rematch_votes.clear()
+            room.touched_at = time.monotonic()
+            return restarted
+
+    async def touch(self, code: str, token: str) -> None:
         async with self._lock:
             room = self._get_locked(code)
             if not room.sides_for(token):
                 raise RoomError("Invalid room token")
-            room.engine.restart()
             room.touched_at = time.monotonic()
 
     async def connect(self, code: str, token: str, socket: WebSocket) -> tuple[Room, list[Side]]:
@@ -123,9 +140,14 @@ class RoomManager:
 
     async def broadcast(self, room: Room) -> None:
         stale: list[WebSocket] = []
+        payload = {
+            "type": "state",
+            "state": room.engine.public_state(),
+            "rematch_votes": sorted(room.rematch_votes),
+        }
         for socket in list(room.sockets):
             try:
-                await socket.send_json({"type": "state", "state": room.engine.public_state()})
+                await socket.send_json(payload)
             except Exception:
                 stale.append(socket)
         if stale:
@@ -145,6 +167,7 @@ class RoomManager:
         return {
             "mode": room.mode,
             "controlled_sides": sides,
+            "rematch_votes": sorted(room.rematch_votes),
             "state": room.engine.public_state(),
         }
 

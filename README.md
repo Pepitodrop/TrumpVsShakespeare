@@ -18,6 +18,7 @@ The release is suitable for a single-node production deployment. Rooms are inten
 
 - **Local 1v1:** two players share one desktop or mobile device and lock one action each.
 - **Online 1v1:** one player creates a six-character room code and shares the link with the opponent.
+- **Mutual rematches:** online matches restart only after both players request a rematch.
 - **Mobile:** the interface is responsive and installable as a lightweight web app when served over HTTPS.
 
 ## Why every core language is essential
@@ -93,14 +94,14 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
 pytest
-uvicorn trump_vs_shakespeare.web.app:app --reload
+trump-vs-shakespeare
 ```
 
 Then open `http://localhost:8000`.
 
 ## Deploy online
 
-Use the container behind a TLS-terminating reverse proxy such as Caddy, Traefik, or Nginx. WebSockets must be forwarded to `/ws/*`.
+Use the container behind a TLS-terminating reverse proxy such as Caddy, Traefik, or Nginx. WebSockets must be forwarded to `/ws/*` and the proxy must preserve the `Sec-WebSocket-Protocol` header.
 
 Example environment:
 
@@ -109,14 +110,19 @@ TVS_ALLOWED_ORIGINS=https://duel.example.com
 TVS_ROOM_TTL_SECONDS=7200
 TVS_MAX_ROOMS=1000
 TVS_ENABLE_DOCS=false
+FORWARDED_ALLOW_IPS=127.0.0.1
+WS_MAX_SIZE=65536
+WS_MAX_QUEUE=16
 ```
 
 Production notes:
 
 1. Keep the application at one worker and one replica because the room store is in memory.
 2. Terminate HTTPS at the reverse proxy so mobile browsers can install the web app and use secure WebSockets.
-3. Avoid logging WebSocket query strings because the ephemeral room token is sent during connection setup.
-4. Use a shared state backend and pub/sub before running multiple replicas.
+3. Set `FORWARDED_ALLOW_IPS` only to the exact proxy IP or trusted CIDR. Never use `*` on an internet-facing deployment.
+4. Room tokens are transported in the HTTP `Authorization` header and WebSocket subprotocol rather than URLs. Do not configure the proxy to log those headers.
+5. Apply infrastructure-level rate limits to room creation and joining.
+6. Use a shared state backend and pub/sub before running multiple replicas.
 
 ## Architecture
 
@@ -155,9 +161,12 @@ The suite verifies that:
 - SPL stage calculations affect round behavior;
 - Assembly is used for randomness, hit checks, and damage;
 - selected moves remain hidden until both players lock;
+- room tokens are rejected in URLs and accepted through the intended credentials;
+- local WebSocket rounds resolve end to end;
+- online rematches require both players;
 - local and online room creation work through the HTTP API.
 
-GitHub Actions tests Python 3.11 and 3.12 and builds the production Docker image.
+GitHub Actions tests Python 3.11 and 3.12, assembles the AArch64 source, builds and starts the hardened AMD64 production container, checks readiness, and cross-builds the ARM64 image.
 
 ## Configuration
 
@@ -168,6 +177,9 @@ GitHub Actions tests Python 3.11 and 3.12 and builds the production Docker image
 | `TVS_MAX_ROOMS` | `1000` | In-memory room limit |
 | `TVS_ENABLE_DOCS` | `false` | Enables `/api/docs` |
 | `TVS_NATIVE_LIB` | auto-discovered | Path to `libcombat.so` |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Exact trusted reverse-proxy IP or CIDR |
+| `WS_MAX_SIZE` | `65536` | Maximum WebSocket message size in bytes |
+| `WS_MAX_QUEUE` | `16` | Maximum queued WebSocket messages per connection |
 
 ## Satire and content note
 

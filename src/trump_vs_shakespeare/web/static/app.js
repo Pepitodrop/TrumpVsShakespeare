@@ -10,7 +10,10 @@ const ui = {
   roundLabel: $("roundLabel"), battleLog: $("battleLog")
 };
 
-const session = { room: null, token: null, mode: null, controlledSides: [], state: null, socket: null, reconnects: 0, pingTimer: null };
+const session = {
+  room: null, token: null, mode: null, controlledSides: [], rematchVotes: [],
+  state: null, socket: null, reconnects: 0, pingTimer: null
+};
 
 ui.localBtn.addEventListener("click", () => createRoom("local"));
 ui.onlineBtn.addEventListener("click", () => createRoom("online"));
@@ -22,7 +25,11 @@ ui.restartBtn.addEventListener("click", () => send({ type: "restart" }));
 ui.roomInput.addEventListener("input", () => { ui.roomInput.value = ui.roomInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); });
 
 async function request(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+  const response = await fetch(path, {
+    ...options,
+    cache: "no-store",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || "The server rejected the request.");
   return data;
@@ -55,6 +62,7 @@ function enterRoom(data) {
   session.token = data.token;
   session.mode = data.mode;
   session.controlledSides = data.controlled_sides;
+  session.rematchVotes = data.rematch_votes || [];
   session.state = data.state;
   sessionStorage.setItem("tvs-session", JSON.stringify({ room: session.room, token: session.token }));
   history.replaceState({}, "", `/?room=${encodeURIComponent(session.room)}`);
@@ -69,7 +77,10 @@ function connectSocket() {
   if (!session.room || !session.token) return;
   if (session.socket) session.socket.close();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${location.host}/ws/${encodeURIComponent(session.room)}?token=${encodeURIComponent(session.token)}`);
+  const socket = new WebSocket(
+    `${protocol}//${location.host}/ws/${encodeURIComponent(session.room)}`,
+    `tvs-token.${session.token}`
+  );
   session.socket = socket;
   ui.connection.textContent = "Connecting…";
   ui.connection.classList.remove("online");
@@ -81,13 +92,17 @@ function connectSocket() {
     session.pingTimer = setInterval(() => send({ type: "ping" }), 25000);
   });
   socket.addEventListener("message", ({ data }) => {
-    const message = JSON.parse(data);
+    let message;
+    try { message = JSON.parse(data); }
+    catch { return showError("game", "The server sent an invalid message."); }
     if (message.type === "hello") {
       session.mode = message.mode;
       session.controlledSides = message.controlled_sides;
+      session.rematchVotes = message.rematch_votes || [];
       session.state = message.state;
       render();
     } else if (message.type === "state") {
+      session.rematchVotes = message.rematch_votes || [];
       session.state = message.state;
       render();
     } else if (message.type === "error") {
@@ -126,7 +141,11 @@ function render() {
   else if (state.status === "finished") ui.matchTitle.textContent = state.winner === "draw" ? "The duel ends in a draw" : `${displayName(state.winner)} wins the duel`;
   else if (session.mode === "local") ui.matchTitle.textContent = "Local duel — choose both actions";
   else ui.matchTitle.textContent = `You command ${displayName(session.controlledSides[0])}`;
+
   ui.restartBtn.hidden = state.status !== "finished";
+  const voted = session.controlledSides.some((side) => session.rematchVotes.includes(side));
+  ui.restartBtn.disabled = session.mode === "online" && voted;
+  ui.restartBtn.textContent = session.mode === "online" && voted ? "Waiting for opponent…" : (session.mode === "online" ? "Request rematch" : "Play again");
   ui.shareBtn.hidden = session.mode === "local";
 
   renderFighter("trump", state.fighters.trump, state.moves.trump, state.pending.trump);
@@ -187,6 +206,7 @@ async function shareRoom() {
 function leaveRoom() {
   session.room = null;
   session.token = null;
+  session.rematchVotes = [];
   sessionStorage.removeItem("tvs-session");
   if (session.socket) session.socket.close();
   history.replaceState({}, "", "/");
@@ -210,7 +230,9 @@ async function restoreOrPrefill() {
   const stored = JSON.parse(sessionStorage.getItem("tvs-session") || "null");
   if (!stored || stored.room !== roomFromUrl) return;
   try {
-    const data = await request(`/api/rooms/${encodeURIComponent(stored.room)}?token=${encodeURIComponent(stored.token)}`);
+    const data = await request(`/api/rooms/${encodeURIComponent(stored.room)}`, {
+      headers: { Authorization: `Bearer ${stored.token}` }
+    });
     enterRoom({ room_code: stored.room, token: stored.token, ...data });
   } catch { sessionStorage.removeItem("tvs-session"); }
 }

@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +20,8 @@ from trump_vs_shakespeare.runtimes.assembly import AssemblyCombatRuntime
 from trump_vs_shakespeare.web.rooms import RoomError, RoomManager
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
+_WS_TOKEN_PREFIX = "tvs-token."
 
 
 class CreateRoomRequest(BaseModel):
@@ -27,6 +30,25 @@ class CreateRoomRequest(BaseModel):
 
 class JoinRoomRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^[A-Za-z0-9]+$")
+
+
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="A room token is required")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not _TOKEN_PATTERN.fullmatch(token):
+        raise HTTPException(status_code=401, detail="Invalid room token")
+    return token
+
+
+def _websocket_token(websocket: WebSocket) -> tuple[str, str] | None:
+    offered = websocket.headers.get("sec-websocket-protocol", "")
+    for protocol in (item.strip() for item in offered.split(",")):
+        if protocol.startswith(_WS_TOKEN_PREFIX):
+            token = protocol.removeprefix(_WS_TOKEN_PREFIX)
+            if _TOKEN_PATTERN.fullmatch(token):
+                return protocol, token
+    return None
 
 
 def create_app() -> FastAPI:
@@ -73,11 +95,11 @@ def create_app() -> FastAPI:
             allow_origins=allowed_origins,
             allow_credentials=False,
             allow_methods=["GET", "POST"],
-            allow_headers=["Content-Type"],
+            allow_headers=["Authorization", "Content-Type"],
         )
 
     @app.middleware("http")
-    async def security_headers(request, call_next):
+    async def security_headers(request: Request, call_next):
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; connect-src 'self' ws: wss:; "
@@ -87,6 +109,12 @@ def create_app() -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
     @app.get("/healthz")
@@ -117,14 +145,18 @@ def create_app() -> FastAPI:
         return {"room_code": room.code, "token": token, **snapshot}
 
     @app.get("/api/rooms/{code}")
-    async def room_state(code: str, token: str = Query(min_length=20, max_length=128)) -> dict[str, object]:
+    async def room_state(
+        code: str,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, object]:
+        token = _bearer_token(authorization)
         try:
             return await manager.state(code, token)
         except RoomError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.websocket("/ws/{code}")
-    async def room_socket(websocket: WebSocket, code: str, token: str = Query(min_length=20, max_length=128)) -> None:
+    async def room_socket(websocket: WebSocket, code: str) -> None:
         origin = websocket.headers.get("origin")
         host = websocket.headers.get("host", "")
         same_origins = {f"http://{host}", f"https://{host}"}
@@ -132,26 +164,41 @@ def create_app() -> FastAPI:
         if origin and origin not in accepted_origins:
             await websocket.close(code=4403, reason="Origin is not allowed")
             return
+
+        credentials = _websocket_token(websocket)
+        if credentials is None:
+            await websocket.close(code=4401, reason="A room token is required")
+            return
+        selected_protocol, token = credentials
+
         try:
             room, sides = await manager.connect(code, token, websocket)
         except RoomError as error:
             await websocket.close(code=4403, reason=str(error))
             return
 
-        await websocket.accept()
+        await websocket.accept(subprotocol=selected_protocol)
         await websocket.send_json(
             {
                 "type": "hello",
                 "room_code": room.code,
                 "mode": room.mode,
                 "controlled_sides": sides,
+                "rematch_votes": sorted(room.rematch_votes),
                 "state": room.engine.public_state(),
             }
         )
         await manager.broadcast(room)
         try:
             while True:
-                message = await websocket.receive_json()
+                try:
+                    message = await websocket.receive_json()
+                except (TypeError, ValueError):
+                    await websocket.send_json({"type": "error", "message": "Message must be valid JSON"})
+                    continue
+                if not isinstance(message, dict):
+                    await websocket.send_json({"type": "error", "message": "Message must be a JSON object"})
+                    continue
                 message_type = message.get("type")
                 try:
                     if message_type == "action":
@@ -165,6 +212,7 @@ def create_app() -> FastAPI:
                     elif message_type == "restart":
                         await manager.restart(room.code, token)
                     elif message_type == "ping":
+                        await manager.touch(room.code, token)
                         await websocket.send_json({"type": "pong"})
                         continue
                     else:

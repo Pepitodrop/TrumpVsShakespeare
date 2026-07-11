@@ -11,7 +11,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +27,7 @@ from pydantic import BaseModel, Field
 from trump_vs_shakespeare import __version__
 from trump_vs_shakespeare.game.engine import GameRuleError, validate_runtime_stack
 from trump_vs_shakespeare.runtimes.assembly import AssemblyCombatRuntime
-from trump_vs_shakespeare.web.rooms import RoomError, RoomManager
+from trump_vs_shakespeare.web.rooms import Room, RoomError, RoomManager
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
@@ -74,6 +81,16 @@ def _positive_float(name: str, default: float) -> float:
     return value
 
 
+async def _send_json(
+    room: Room,
+    websocket: WebSocket,
+    payload: dict[str, object],
+    timeout: float,
+) -> None:
+    async with room.broadcast_lock:
+        await asyncio.wait_for(websocket.send_json(payload), timeout=timeout)
+
+
 def create_app() -> FastAPI:
     assembly = AssemblyCombatRuntime.discover()
     runtime_status = validate_runtime_stack(assembly)
@@ -110,7 +127,11 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Trump vs. Shakespeare",
         version=__version__,
-        docs_url="/api/docs" if os.getenv("TVS_ENABLE_DOCS", "false").casefold() == "true" else None,
+        docs_url=(
+            "/api/docs"
+            if os.getenv("TVS_ENABLE_DOCS", "false").casefold() == "true"
+            else None
+        ),
         redoc_url=None,
         lifespan=lifespan,
     )
@@ -140,13 +161,17 @@ def create_app() -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=()"
+        )
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         if request.url.scheme == "https":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
         return response
 
     @app.get("/healthz")
@@ -213,21 +238,24 @@ def create_app() -> FastAPI:
         registered = False
         try:
             snapshot = await manager.state(room.code, token)
-            async with room.broadcast_lock:
-                await asyncio.wait_for(
-                    websocket.send_json(
-                        {
-                            "type": "hello",
-                            "room_code": room.code,
-                            "mode": snapshot["mode"],
-                            "controlled_sides": sides,
-                            "rematch_votes": snapshot["rematch_votes"],
-                            "state": snapshot["state"],
-                        }
-                    ),
-                    timeout=socket_send_timeout,
-                )
-            await manager.register(room, websocket)
+            await _send_json(
+                room,
+                websocket,
+                {
+                    "type": "hello",
+                    "room_code": room.code,
+                    "mode": snapshot["mode"],
+                    "controlled_sides": sides,
+                    "rematch_votes": snapshot["rematch_votes"],
+                    "state": snapshot["state"],
+                },
+                socket_send_timeout,
+            )
+            try:
+                await manager.register(room, websocket)
+            except RoomError as error:
+                await websocket.close(code=4429, reason=str(error))
+                return
             registered = True
             await manager.broadcast(room)
 
@@ -253,12 +281,20 @@ def create_app() -> FastAPI:
                 try:
                     message = json.loads(raw_message)
                 except json.JSONDecodeError:
-                    async with room.broadcast_lock:
-                        await websocket.send_json({"type": "error", "message": "Message must be valid JSON"})
+                    await _send_json(
+                        room,
+                        websocket,
+                        {"type": "error", "message": "Message must be valid JSON"},
+                        socket_send_timeout,
+                    )
                     continue
                 if not isinstance(message, dict):
-                    async with room.broadcast_lock:
-                        await websocket.send_json({"type": "error", "message": "Message must be a JSON object"})
+                    await _send_json(
+                        room,
+                        websocket,
+                        {"type": "error", "message": "Message must be a JSON object"},
+                        socket_send_timeout,
+                    )
                     continue
                 message_type = message.get("type")
                 try:
@@ -274,14 +310,22 @@ def create_app() -> FastAPI:
                         await manager.restart(room.code, token)
                     elif message_type == "ping":
                         await manager.touch(room.code, token)
-                        async with room.broadcast_lock:
-                            await websocket.send_json({"type": "pong"})
+                        await _send_json(
+                            room,
+                            websocket,
+                            {"type": "pong"},
+                            socket_send_timeout,
+                        )
                         continue
                     else:
                         raise RoomError("Unsupported message type")
                 except (RoomError, GameRuleError) as error:
-                    async with room.broadcast_lock:
-                        await websocket.send_json({"type": "error", "message": str(error)})
+                    await _send_json(
+                        room,
+                        websocket,
+                        {"type": "error", "message": str(error)},
+                        socket_send_timeout,
+                    )
                     continue
                 await manager.broadcast(room)
         except (WebSocketDisconnect, RuntimeError, RoomError):
@@ -292,7 +336,10 @@ def create_app() -> FastAPI:
 
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest() -> FileResponse:
-        return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+        return FileResponse(
+            STATIC_DIR / "manifest.webmanifest",
+            media_type="application/manifest+json",
+        )
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker() -> FileResponse:

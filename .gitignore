@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dll
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.DS_Store
+build/
+dist/
+*.log

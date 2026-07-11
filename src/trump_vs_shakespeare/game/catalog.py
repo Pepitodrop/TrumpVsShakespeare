@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
@@ -38,7 +39,14 @@ def program_path(filename: str) -> Path:
 
 
 def load_catalog() -> dict[str, Move]:
-    moves: dict[str, Move] = {}
+    """Return a fresh mapping backed by the once-validated immutable move entries."""
+
+    return {move.id: move for move in _catalog_entries()}
+
+
+@lru_cache(maxsize=1)
+def _catalog_entries() -> tuple[Move, ...]:
+    moves: list[Move] = []
     trump = TrumpScriptRuntime().execute_file(program_path("trump_moves.tr"))
     for move_id in TRUMP_MOVE_IDS:
         move = Move(
@@ -54,7 +62,7 @@ def load_catalog() -> dict[str, Move]:
             heal=trump.scaled_int(f"{move_id}_heal"),
         )
         _validate(move)
-        moves[move.id] = move
+        moves.append(move)
 
     bard = ShakespeareRuntime().execute_file(program_path("shakespeare_moves.spl"))
     for move_id, (name, description) in SHAKESPEARE_METADATA.items():
@@ -75,11 +83,11 @@ def load_catalog() -> dict[str, Move]:
             heal=scene["Othello"],
         )
         _validate(move)
-        moves[move.id] = move
+        moves.append(move)
 
-    if len(moves) != 8:
-        raise CatalogError("Exactly eight executable moves are required")
-    return moves
+    if len(moves) != 8 or len({move.id for move in moves}) != 8:
+        raise CatalogError("Exactly eight unique executable moves are required")
+    return tuple(moves)
 
 
 def _validate(move: Move) -> None:

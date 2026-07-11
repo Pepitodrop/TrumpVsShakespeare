@@ -4,10 +4,13 @@ __pycache__/
 *.dylib
 *.dll
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
+.venv/
 .env
 .DS_Store
 build/
 dist/
+*.egg-info/
 *.log

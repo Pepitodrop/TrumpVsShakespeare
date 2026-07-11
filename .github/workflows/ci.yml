@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install native toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc binutils clang
+      - name: Build Assembly runtime
+        run: ./scripts/build_native.sh
+      - name: Validate AArch64 Assembly source
+        run: clang --target=aarch64-linux-gnu -c src/trump_vs_shakespeare/native/combat_aarch64.S -o /tmp/combat_aarch64.o
+      - name: Install project
+        run: python -m pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check src tests
+      - name: Test
+        run: pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        id: image-build
+        continue-on-error: true
+        run: docker build --progress=plain --tag trump-vs-shakespeare:ci . > /tmp/docker-build.log 2>&1
+      - name: Upload Docker build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-log
+          path: /tmp/docker-build.log
+          retention-days: 3
+      - name: Report Docker build failure
+        if: steps.image-build.outcome == 'failure'
+        run: |
+          tail -n 120 /tmp/docker-build.log
+          exit 1
+      - name: Verify image security defaults
+        run: |
+          test "$(docker image inspect trump-vs-shakespeare:ci --format '{{.Config.User}}')" = "game"
+          test "$(docker image inspect trump-vs-shakespeare:ci --format '{{json .Config.Healthcheck.Test}}')" != "null"
+      - name: Smoke-test production image
+        run: |
+          set -eu
+          container_id="$(docker run --detach --read-only --tmpfs /tmp:size=16m --publish 127.0.0.1:18000:8000 trump-vs-shakespeare:ci)"
+          trap 'docker logs "$container_id" || true; docker rm --force "$container_id" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18000/readyz >/tmp/ready.json; then
+              grep -q '"status":"ready"' /tmp/ready.json
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Container did not become ready" >&2
+          exit 1
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ARM64 production image
+        run: docker buildx build --platform linux/arm64 --progress=plain .

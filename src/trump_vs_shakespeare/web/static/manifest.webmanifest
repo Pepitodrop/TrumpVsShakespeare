@@ -1,0 +1,10 @@
+{
+  "name": "Trump vs. Shakespeare",
+  "short_name": "T vs S",
+  "description": "A 1v1 computational duel powered by TrumpScript, SPL, and Assembly.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#131722",
+  "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+}

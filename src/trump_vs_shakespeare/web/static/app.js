@@ -2,17 +2,18 @@
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  lobby: $("lobby"), arena: $("arena"), localBtn: $("localBtn"), onlineBtn: $("onlineBtn"),
-  joinForm: $("joinForm"), roomInput: $("roomInput"), lobbyError: $("lobbyError"), gameError: $("gameError"),
-  roomCode: $("roomCode"), matchTitle: $("matchTitle"), connection: $("connection"), shareBtn: $("shareBtn"), leaveBtn: $("leaveBtn"), restartBtn: $("restartBtn"),
-  trumpHealth: $("trumpHealth"), trumpHealthText: $("trumpHealthText"), trumpEnergy: $("trumpEnergy"), trumpGuard: $("trumpGuard"), trumpMoves: $("trumpMoves"), trumpPending: $("trumpPending"),
-  shakespeareHealth: $("shakespeareHealth"), shakespeareHealthText: $("shakespeareHealthText"), shakespeareEnergy: $("shakespeareEnergy"), shakespeareGuard: $("shakespeareGuard"), shakespeareMoves: $("shakespeareMoves"), shakespearePending: $("shakespearePending"),
+  lobby: $("lobby"), arena: $("arena"), waitingPanel: $("waitingPanel"), battleContent: $("battleContent"),
+  localBtn: $("localBtn"), onlineBtn: $("onlineBtn"), joinForm: $("joinForm"), roomInput: $("roomInput"),
+  lobbyError: $("lobbyError"), gameError: $("gameError"), roomCode: $("roomCode"), matchTitle: $("matchTitle"),
+  connection: $("connection"), shareStatus: $("shareStatus"), shareBtn: $("shareBtn"), leaveBtn: $("leaveBtn"), restartBtn: $("restartBtn"),
+  trumpHealth: $("trumpHealth"), trumpHealthText: $("trumpHealthText"), trumpEnergy: $("trumpEnergy"), trumpEnergyBar: $("trumpEnergyBar"), trumpRecovery: $("trumpRecovery"), trumpGuard: $("trumpGuard"), trumpMoves: $("trumpMoves"), trumpPending: $("trumpPending"),
+  shakespeareHealth: $("shakespeareHealth"), shakespeareHealthText: $("shakespeareHealthText"), shakespeareEnergy: $("shakespeareEnergy"), shakespeareEnergyBar: $("shakespeareEnergyBar"), shakespeareRecovery: $("shakespeareRecovery"), shakespeareGuard: $("shakespeareGuard"), shakespeareMoves: $("shakespeareMoves"), shakespearePending: $("shakespearePending"),
   roundLabel: $("roundLabel"), battleLog: $("battleLog")
 };
 
 const session = {
   room: null, token: null, mode: null, controlledSides: [], rematchVotes: [],
-  state: null, socket: null, reconnects: 0, pingTimer: null
+  state: null, socket: null, reconnects: 0, pingTimer: null, shareTimer: null
 };
 
 ui.localBtn.addEventListener("click", () => createRoom("local"));
@@ -69,8 +70,10 @@ function enterRoom(data) {
   ui.lobby.hidden = true;
   ui.arena.hidden = false;
   ui.roomCode.textContent = session.room;
+  clearShareStatus();
   render();
   connectSocket();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function connectSocket() {
@@ -111,6 +114,7 @@ function connectSocket() {
   });
   socket.addEventListener("close", () => {
     clearInterval(session.pingTimer);
+    session.socket = null;
     ui.connection.textContent = "Reconnecting…";
     ui.connection.classList.remove("online");
     if (!session.room) return;
@@ -137,26 +141,37 @@ function render() {
   if (!state) return;
   ui.roundLabel.textContent = `ROUND ${state.round}`;
   const waiting = state.status === "waiting";
+  ui.waitingPanel.hidden = !waiting;
+  ui.battleContent.hidden = waiting;
+
   if (waiting) ui.matchTitle.textContent = "Waiting for Shakespeare to join…";
   else if (state.status === "finished") ui.matchTitle.textContent = state.winner === "draw" ? "The duel ends in a draw" : `${displayName(state.winner)} wins the duel`;
   else if (session.mode === "local") ui.matchTitle.textContent = "Local duel — choose both actions";
   else ui.matchTitle.textContent = `You command ${displayName(session.controlledSides[0])}`;
 
-  ui.restartBtn.hidden = state.status !== "finished";
+  ui.restartBtn.hidden = waiting || state.status !== "finished";
   const voted = session.controlledSides.some((side) => session.rematchVotes.includes(side));
   ui.restartBtn.disabled = session.mode === "online" && voted;
   ui.restartBtn.textContent = session.mode === "online" && voted ? "Waiting for opponent…" : (session.mode === "online" ? "Request rematch" : "Play again");
   ui.shareBtn.hidden = session.mode === "local";
 
-  renderFighter("trump", state.fighters.trump, state.moves.trump, state.pending.trump);
-  renderFighter("shakespeare", state.fighters.shakespeare, state.moves.shakespeare, state.pending.shakespeare);
-  renderLog(state.log);
+  if (!waiting) {
+    renderFighter("trump", state.fighters.trump, state.moves.trump, state.pending.trump);
+    renderFighter("shakespeare", state.fighters.shakespeare, state.moves.shakespeare, state.pending.shakespeare);
+    renderLog(state.log);
+  }
 }
 
 function renderFighter(side, fighter, moves, pending) {
-  ui[`${side}Health`].style.width = `${Math.max(0, fighter.health)}%`;
-  ui[`${side}HealthText`].textContent = `${fighter.health} / 100`;
-  ui[`${side}Energy`].textContent = fighter.energy;
+  const rules = session.state.rules || {};
+  const maxHealth = rules.max_health || 100;
+  const maxEnergy = rules.max_energy || 10;
+  const recovery = side === "trump" ? (rules.trump_energy_recovery || 2) : (rules.shakespeare_energy_recovery || 2);
+  ui[`${side}Health`].style.width = `${Math.max(0, Math.min(100, fighter.health / maxHealth * 100))}%`;
+  ui[`${side}HealthText`].textContent = `${fighter.health} / ${maxHealth}`;
+  ui[`${side}Energy`].textContent = `${fighter.energy} / ${maxEnergy}`;
+  ui[`${side}EnergyBar`].style.width = `${Math.max(0, Math.min(100, fighter.energy / maxEnergy * 100))}%`;
+  ui[`${side}Recovery`].textContent = `+${recovery} after each resolved round`;
   ui[`${side}Guard`].textContent = fighter.guard;
   ui[`${side}Pending`].hidden = !pending;
   const container = ui[`${side}Moves`];
@@ -166,7 +181,9 @@ function renderFighter(side, fighter, moves, pending) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "move";
-    button.disabled = !controlled || pending || session.state.status !== "playing" || move.cost > fighter.energy;
+    const unaffordable = move.cost > fighter.energy;
+    button.disabled = !controlled || pending || session.state.status !== "playing" || unaffordable;
+    if (unaffordable) button.title = `Requires ${move.cost} energy; ${fighter.energy} available.`;
     const title = document.createElement("strong");
     const name = document.createElement("span"); name.textContent = move.name;
     const cost = document.createElement("span"); cost.textContent = `${move.cost} EN`;
@@ -199,19 +216,40 @@ async function shareRoom() {
   const shareData = { title: "Trump vs. Shakespeare", text: `Join room ${session.room}`, url };
   try {
     if (navigator.share) await navigator.share(shareData);
-    else { await navigator.clipboard.writeText(url); ui.matchTitle.textContent = "Invite link copied"; }
+    else {
+      await navigator.clipboard.writeText(url);
+      showShareStatus("Copied");
+    }
   } catch (error) { if (error.name !== "AbortError") showError("game", "Could not share the room link."); }
+}
+
+function showShareStatus(message) {
+  clearTimeout(session.shareTimer);
+  ui.shareStatus.textContent = message;
+  session.shareTimer = setTimeout(clearShareStatus, 2500);
+}
+
+function clearShareStatus() {
+  clearTimeout(session.shareTimer);
+  ui.shareStatus.textContent = "";
 }
 
 function leaveRoom() {
   session.room = null;
   session.token = null;
+  session.mode = null;
+  session.state = null;
+  session.controlledSides = [];
   session.rematchVotes = [];
   sessionStorage.removeItem("tvs-session");
+  clearInterval(session.pingTimer);
+  clearShareStatus();
   if (session.socket) session.socket.close();
+  session.socket = null;
   history.replaceState({}, "", "/");
   ui.arena.hidden = true;
   ui.lobby.hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function showError(place, message) {

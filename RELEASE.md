@@ -1,12 +1,23 @@
-# v1.0.1 release contract
+# v1.0.2 release contract
 
-This document defines what the `v1.0.1` tag certifies and what it does not. The existing `v1.0.0` tag remains immutable.
+This document defines what the `v1.0.2` tag certifies and what it does not. Existing tags remain immutable.
 
 ## Certified deployment model
 
 The release is intended for one application worker in one container replica behind an HTTPS reverse proxy. The server is authoritative for room ownership, hidden actions, energy, health, guard, initiative, damage, win conditions, and rematch consent.
 
 The release is not certified for multiple workers or replicas. Rooms are process-local. Horizontal scaling requires a shared room store, distributed locking, and pub/sub before it is safe.
+
+## User-facing certification
+
+The exact tagged commit must prove that:
+
+- the lobby and arena never render simultaneously;
+- waiting online rooms hide the battlefield until a second player joins;
+- the header logo and tab icon load from versioned assets;
+- the landing page explains TrumpScript, Shakespeare SPL, Assembly, and the Python host;
+- energy maximums and round recovery values come from authoritative server state;
+- the chronicle reports post-recovery energy totals.
 
 ## Release gates
 
@@ -20,6 +31,7 @@ The exact tagged commit must pass all of the following:
 - Verification of the non-root user, health check, working directory, package version, and dependency consistency.
 - Direct image startup with a read-only root filesystem and a successful `/readyz` response proving that the TrumpScript move catalog, Shakespeare move catalog, SPL stage manager, and Assembly runtime all execute correctly.
 - Docker Compose startup with the checked-in production hardening, successful `/`, `/favicon.ico`, and `/readyz` requests, and a running healthy service.
+- Verification that the served homepage contains the v1.0.2 runtime explanation.
 - ARM64 image construction.
 
 ## Reproducible inputs
@@ -40,8 +52,8 @@ The Debian compiler packages are used only in the discarded builder stage. The r
 
 ## Data durability
 
-Rooms, matches, tokens, and logs are ephemeral. Restarting the process removes all active rooms. This is intentional for v1.0.1 and must be communicated to operators and players.
+Rooms, matches, tokens, and logs are ephemeral. Restarting the process removes all active rooms. This is intentional for v1.0.2 and must be communicated to operators and players.
 
 ## Tagging rule
 
-The `v1.0.1` tag must point to the exact reviewed merge commit after its `main` CI run succeeds. Create it as an annotated tag and never move or reuse it.
+The `v1.0.2` tag must point to the exact reviewed merge commit after its `main` CI run succeeds. Create it as an annotated tag and never move or reuse it.

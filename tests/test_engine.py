@@ -38,3 +38,22 @@ def test_public_state_hides_selected_move() -> None:
     public = game.public_state()
     assert public["pending"]["trump"] is True
     assert "covfefe_cannon" not in str(public["pending"])
+
+
+def test_public_state_exposes_energy_policy_and_round_recovery() -> None:
+    game = engine()
+    policy = game.public_state()["rules"]
+    assert policy == {
+        "max_health": 100,
+        "max_energy": 10,
+        "trump_energy_recovery": 2,
+        "shakespeare_energy_recovery": 2,
+        "guard_decay": 4,
+    }
+
+    game.submit("trump", "executive_order")
+    game.submit("shakespeare", "quill_thrust")
+
+    assert game.state.fighters["trump"].energy == 6
+    assert game.state.fighters["shakespeare"].energy == 7
+    assert any("Energy after recovery" in entry["message"] for entry in game.state.log)

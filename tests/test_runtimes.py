@@ -43,7 +43,7 @@ def test_trumpscript_rejects_unrecognized_prose() -> None:
         TrumpScriptRuntime().execute(
             """
             The Greatest Test Speech Ever Delivered.
-            This arbitrary sentence is not a supported assignment.
+            This arbitrary sentence cannot be parsed.
             America is great.
             """
         )

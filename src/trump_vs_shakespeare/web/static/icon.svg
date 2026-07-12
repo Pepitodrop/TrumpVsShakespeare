@@ -1,6 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#e6b84d"/><stop offset="1" stop-color="#d85a69"/></linearGradient></defs>
-  <rect width="512" height="512" rx="112" fill="#131722"/>
-  <circle cx="256" cy="256" r="182" fill="none" stroke="url(#g)" stroke-width="18"/>
-  <text x="256" y="292" text-anchor="middle" font-family="Georgia,serif" font-size="142" font-weight="700" fill="#f4f0e6">T·S</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Trump versus Shakespeare">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#151a25"/>
+      <stop offset="1" stop-color="#0b0e14"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#e6b84d"/>
+      <stop offset=".5" stop-color="#f4f0e6"/>
+      <stop offset="1" stop-color="#d85a69"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="184" fill="none" stroke="url(#ring)" stroke-width="24"/>
+  <path d="M150 158h88v38h-23v158h-42V196h-23z" fill="#e6b84d"/>
+  <path d="M287 169c22-14 51-19 77-12v42c-22-9-48-8-48 9 0 13 14 18 32 26 29 13 48 32 48 66 0 49-42 68-91 56v-43c26 12 57 10 57-10 0-15-16-21-36-30-27-12-44-31-44-62 0-18 6-32 15-42z" fill="#d85a69"/>
+  <path d="M244 215l24 82 24-82h34l-42 130h-34l-42-130z" fill="#f4f0e6" opacity=".92"/>
 </svg>

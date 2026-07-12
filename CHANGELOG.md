@@ -4,6 +4,23 @@ All notable changes follow Keep a Changelog conventions. The project uses Semant
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-13
+
+### Changed
+
+- Rebuilt the header mark so `T vs S` stays on one line at desktop and mobile sizes.
+- Added a visible three-card explanation of TrumpScript, Shakespeare SPL, Assembly, and the Python/FastAPI integration host.
+- Added authoritative energy meters, maximum-energy and per-round recovery labels, disabled-move explanations, and an end-of-round energy summary in the chronicle.
+- Updated all public version, cache, Docker image, CI, release-contract, and dependency-lock references to `1.0.2`.
+
+### Fixed
+
+- Enforced the HTML `hidden` attribute even when component classes define `display`, preventing the lobby and arena from appearing simultaneously.
+- Hide fighter cards and moves while an online room is still waiting for a second player.
+- Replaced the low-contrast favicon artwork and cache-busted favicon, CSS, and JavaScript URLs.
+- Stop replacing the match title with `Invite link copied`; copy confirmation now appears as temporary status text.
+- Added tests for the visible runtime explanation, hidden-room behavior, favicon version, authoritative energy policy, and energy recovery values.
+
 ## [1.0.1] - 2026-07-12
 
 ### Changed

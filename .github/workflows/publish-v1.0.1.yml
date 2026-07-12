@@ -1,0 +1,74 @@
+name: Publish v1.0.1
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the certified commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify release version
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+          if version != '1.0.1':
+              raise SystemExit(f'Expected version 1.0.1, found {version}')
+          PY
+
+      - name: Create annotated tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/v1.0.1 >/dev/null 2>&1; then
+            echo "v1.0.1 already exists; nothing to publish."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a v1.0.1 "$RELEASE_SHA" -m "Trump vs. Shakespeare v1.0.1"
+          git push origin v1.0.1
+
+          cat > /tmp/release-notes.md <<'EOF'
+          ## Trump vs. Shakespeare v1.0.1
+
+          Production-hardening maintenance release.
+
+          ### Highlights
+
+          - Fixed the Docker Compose startup path on confined Docker installations.
+          - Added CI coverage for the exact checked-in Compose deployment.
+          - Fixed expired-room and graceful-shutdown WebSocket cleanup.
+          - Added favicon handling and refreshed the service-worker cache.
+          - Expanded the README with complete gameplay, architecture, security, configuration, and deployment documentation.
+          - Added strict formatting validation and retained dependency audit, SBOM, AMD64 runtime, and ARM64 build gates.
+
+          ### Certified scope
+
+          One worker, one replica, HTTPS reverse proxy, ephemeral in-memory rooms, modest traffic, and infrastructure-level rate limiting.
+          EOF
+
+          gh release create v1.0.1 \
+            --verify-tag \
+            --title "Trump vs. Shakespeare v1.0.1" \
+            --notes-file /tmp/release-notes.md

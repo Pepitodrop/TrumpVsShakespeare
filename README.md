@@ -3,7 +3,7 @@
 A server-authoritative 1v1 web game in which Trump and Shakespeare choose actions in secret and resolve each round together. It is designed around three mandatory execution layers:
 
 - **TrumpScript (`.tr`)** defines and executes Trump's complete move catalog.
-- **Shakespeare Programming Language (`.spl`)** defines and executes Shakespeare's complete move catalog and runs the stage manager for initiative, energy regeneration, guard decay, and round limits.
+- **Shakespeare Programming Language (`.spl`)** defines and executes Shakespeare's complete move catalog and runs the stage manager for initiative, energy regeneration, guard decay, and maximum energy.
 - **Assembly (`.S`)** supplies the native pseudo-random generator, hit checks, critical-hit checks, and final damage calculation for both fighters.
 
 Python is the safe integration runtime because the original TrumpScript implementation is Python-based. A minimal browser layer uses HTML, CSS, and JavaScript because browsers cannot run the three core languages directly. No game rule is trusted to the browser.
@@ -39,15 +39,34 @@ The project does **not** evaluate arbitrary Python, shell commands, or user-subm
 
 ### TrumpScript
 
-`trump_moves.tr` uses a deterministic subset derived from the original language:
+`trump_moves.tr` uses a deterministic, speech-shaped subset derived from the original language:
 
 - case-insensitive `is` and `are` assignments;
+- natural multi-word identifiers such as `executive order damage`, normalized internally to `executive_order_damage`;
+- bounded speech prefixes including `Believe me,`, `Everybody knows`, `People are saying`, `Frankly,`, `We all know`, and `The truth is`;
+- bounded speech suffixes including `believe me`, `it's tremendous`, `very strong`, and `okay`;
 - `fact` and `lie` booleans;
 - million-scale integer rules;
 - `say` and `tell` output;
 - the mandatory `America is great.` ending.
 
-The archived upstream interpreter targets an older environment and contains platform-dependent joke restrictions. This project therefore provides a small production-safe interpreter instead of invoking the archived repository directly.
+For example:
+
+```text
+say "Folks, we have four tremendous moves. Nobody has moves like these."
+
+Everybody knows executive order name is "Executive Order".
+People are saying executive order description is "A fast signature strike with reliable polling numbers."
+Believe me, executive order damage is 14000000.
+The truth is executive order cost is 2000000.
+Executive order guard is lie, believe me.
+
+America is great.
+```
+
+The syntax is intentionally more speech-like than a configuration file, but remains fail-closed: arbitrary prose after the title is rejected rather than silently ignored. It is not a drop-in implementation of the complete upstream TrumpScript grammar.
+
+The archived upstream interpreter targets an older environment, compiles generated Python with `exec`, and includes platform-dependent joke restrictions and system checks. This project therefore provides a small production-safe interpreter instead of invoking the archived repository directly.
 
 ### Shakespeare Programming Language
 
@@ -156,7 +175,7 @@ pytest
 
 The suite verifies that:
 
-- TrumpScript supplies all Trump moves;
+- TrumpScript supplies all Trump moves and accepts only the bounded speech-shaped syntax;
 - SPL supplies all Shakespeare moves;
 - SPL stage calculations affect round behavior;
 - Assembly is used for randomness, hit checks, and damage;

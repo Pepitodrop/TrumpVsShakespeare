@@ -2,6 +2,13 @@
 
 All notable changes follow Keep a Changelog conventions. The project uses Semantic Versioning.
 
+## [Unreleased]
+
+### Changed
+
+- Reworked the safe TrumpScript subset to accept bounded speech-style prefixes, suffixes, and natural multi-word identifiers while remaining deterministic and fail-closed.
+- Rewrote the executable Trump move catalog as a speech-shaped program without changing any move statistics or game balance.
+
 ## [1.0.0] - 2026-07-12
 
 ### Added

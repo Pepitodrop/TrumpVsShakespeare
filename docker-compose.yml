@@ -2,12 +2,14 @@ services:
   game:
     build:
       context: .
-    image: trump-vs-shakespeare:1.0.0
+    image: trump-vs-shakespeare:1.0.1
     restart: unless-stopped
-    init: true
     ports:
-      - "8000:8000"
+      - "${TVS_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      KEEP_ALIVE_SECONDS: ${KEEP_ALIVE_SECONDS:-5}
       TVS_ALLOWED_ORIGINS: ${TVS_ALLOWED_ORIGINS:-}
       TVS_ROOM_TTL_SECONDS: ${TVS_ROOM_TTL_SECONDS:-7200}
       TVS_MAX_ROOMS: ${TVS_MAX_ROOMS:-1000}
@@ -27,3 +29,4 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    stop_grace_period: 10s

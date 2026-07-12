@@ -123,23 +123,18 @@ def create_app() -> FastAPI:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            await manager.shutdown()
 
     app = FastAPI(
         title="Trump vs. Shakespeare",
         version=__version__,
-        docs_url=(
-            "/api/docs"
-            if os.getenv("TVS_ENABLE_DOCS", "false").casefold() == "true"
-            else None
-        ),
+        docs_url=("/api/docs" if os.getenv("TVS_ENABLE_DOCS", "false").casefold() == "true" else None),
         redoc_url=None,
         lifespan=lifespan,
     )
 
     allowed_origins = [
-        origin.strip()
-        for origin in os.getenv("TVS_ALLOWED_ORIGINS", "").split(",")
-        if origin.strip()
+        origin.strip() for origin in os.getenv("TVS_ALLOWED_ORIGINS", "").split(",") if origin.strip()
     ]
     if allowed_origins:
         app.add_middleware(
@@ -161,17 +156,13 @@ def create_app() -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=()"
-        )
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         if request.url.scheme == "https":
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
     @app.get("/healthz")
@@ -344,6 +335,10 @@ def create_app() -> FastAPI:
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker() -> FileResponse:
         return FileResponse(STATIC_DIR / "sw.js", media_type="application/javascript")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(STATIC_DIR / "icon.svg", media_type="image/svg+xml")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

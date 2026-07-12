@@ -4,10 +4,24 @@ All notable changes follow Keep a Changelog conventions. The project uses Semant
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-12
+
 ### Changed
 
 - Reworked the safe TrumpScript subset to accept bounded speech-style prefixes, suffixes, and natural multi-word identifiers while remaining deterministic and fail-closed.
 - Rewrote the executable Trump move catalog as a speech-shaped program without changing any move statistics or game balance.
+- Start the production container through `python -m trump_vs_shakespeare.cli` instead of the generated console-script wrapper.
+- Bind Docker Compose to loopback by default and document an explicit override for public reverse-proxy deployments.
+- Expanded the README with a complete gameplay walkthrough, move statistics, round resolution, architecture, security model, and production deployment contract.
+
+### Fixed
+
+- Removed the Compose `init` wrapper that failed with `operation not permitted` on confined Docker installations.
+- Added a real Docker Compose startup/readiness test to CI so the supported launch path is exercised before release.
+- Close WebSockets for rooms purged during room creation and for all rooms during graceful application shutdown.
+- Serve an explicit favicon and include it in the service-worker cache, eliminating the browser's `/favicon.ico` 404.
+- Added the missing Ruff formatting gate promised by the release contract.
+- Removed the obsolete one-shot `v1.0.0` tagging workflow after the immutable tag had been created.
 
 ## [1.0.0] - 2026-07-12
 

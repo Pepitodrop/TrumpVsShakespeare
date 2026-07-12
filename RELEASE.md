@@ -1,6 +1,6 @@
-# v1.0.0 release contract
+# v1.0.1 release contract
 
-This document defines what the `v1.0.0` tag certifies and what it does not.
+This document defines what the `v1.0.1` tag certifies and what it does not. The existing `v1.0.0` tag remains immutable.
 
 ## Certified deployment model
 
@@ -18,7 +18,8 @@ The exact tagged commit must pass all of the following:
 - CycloneDX SBOM generation.
 - AMD64 image construction from the pinned base-image digest.
 - Verification of the non-root user, health check, working directory, package version, and dependency consistency.
-- Startup with a read-only root filesystem and a successful `/readyz` response proving that the TrumpScript move catalog, Shakespeare move catalog, SPL stage manager, and Assembly runtime all execute correctly.
+- Direct image startup with a read-only root filesystem and a successful `/readyz` response proving that the TrumpScript move catalog, Shakespeare move catalog, SPL stage manager, and Assembly runtime all execute correctly.
+- Docker Compose startup with the checked-in production hardening, successful `/`, `/favicon.ico`, and `/readyz` requests, and a running healthy service.
 - ARM64 image construction.
 
 ## Reproducible inputs
@@ -30,6 +31,7 @@ The Debian compiler packages are used only in the discarded builder stage. The r
 ## Required public-deployment settings
 
 - Terminate TLS at a reverse proxy and forward WebSocket upgrades and `Sec-WebSocket-Protocol`.
+- Keep the default loopback bind when the reverse proxy runs on the same host. Set `TVS_BIND_ADDRESS` only when a different host-level bind is intentionally required.
 - Set `FORWARDED_ALLOW_IPS` only to the exact proxy address or a trusted CIDR.
 - Set `TVS_ALLOWED_ORIGINS` when the browser and API use different origins.
 - Keep the container non-root, read-only, capability-free, and protected by `no-new-privileges`.
@@ -38,8 +40,8 @@ The Debian compiler packages are used only in the discarded builder stage. The r
 
 ## Data durability
 
-Rooms, matches, tokens, and logs are ephemeral. Restarting the process removes all active rooms. This is intentional for v1.0.0 and must be communicated to operators and players.
+Rooms, matches, tokens, and logs are ephemeral. Restarting the process removes all active rooms. This is intentional for v1.0.1 and must be communicated to operators and players.
 
 ## Tagging rule
 
-The `v1.0.0` tag must point to the exact reviewed merge commit after its `main` CI run succeeds. The tag must never be moved or reused.
+The `v1.0.1` tag must point to the exact reviewed merge commit after its `main` CI run succeeds. Create it as an annotated tag and never move or reuse it.

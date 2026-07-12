@@ -1,56 +1,157 @@
 # Trump vs. Shakespeare
 
-A server-authoritative 1v1 web game in which Trump and Shakespeare choose actions in secret and resolve each round together. It is designed around three mandatory execution layers:
+A server-authoritative, simultaneous-turn 1v1 browser game in which Trump and Shakespeare secretly choose actions and let three mandatory execution layers resolve the debate:
 
 - **TrumpScript (`.tr`)** defines and executes Trump's complete move catalog.
-- **Shakespeare Programming Language (`.spl`)** defines and executes Shakespeare's complete move catalog and runs the stage manager for initiative, energy regeneration, guard decay, and maximum energy.
+- **Shakespeare Programming Language (`.spl`)** defines and executes Shakespeare's complete move catalog and the round stage policy.
 - **Assembly (`.S`)** supplies the native pseudo-random generator, hit checks, critical-hit checks, and final damage calculation for both fighters.
 
-Python is the safe integration runtime because the original TrumpScript implementation is Python-based. A minimal browser layer uses HTML, CSS, and JavaScript because browsers cannot run the three core languages directly. No game rule is trusted to the browser.
+Python is the safe integration host. The browser renders the interface and submits action identifiers, but it never decides damage, health, energy, initiative, winners, or room ownership.
 
 ## Status
 
-**Version:** `1.0.0`
+**Version:** `1.0.1`
 
-The release is suitable for a single-node production deployment. Rooms are intentionally ephemeral and held in memory. Run one application replica, or add a shared room backend before horizontal scaling.
+The certified deployment target is **one application worker in one container replica behind an HTTPS reverse proxy**. Rooms and matches are intentionally ephemeral and stored in process memory. Horizontal scaling requires a shared room backend, distributed locking, and pub/sub first.
 
-## Game modes
+## Quick start
 
-- **Local 1v1:** two players share one desktop or mobile device and lock one action each.
-- **Online 1v1:** one player creates a six-character room code and shares the link with the opponent.
-- **Mutual rematches:** online matches restart only after both players request a rematch.
-- **Mobile:** the interface is responsive and installable as a lightweight web app when served over HTTPS.
+Requirements:
 
-## Why every core language is essential
+- Docker Engine with Docker Compose v2;
+- an AMD64 or ARM64 Linux host;
+- port 8000 available on loopback.
+
+```bash
+git clone https://github.com/Pepitodrop/TrumpVsShakespeare.git
+cd TrumpVsShakespeare
+docker compose up --build
+```
+
+Open `http://localhost:8000`.
+
+Verify all three mandatory runtimes:
+
+```bash
+curl --fail http://127.0.0.1:8000/readyz
+```
+
+A ready server returns values equivalent to:
+
+```json
+{
+  "status": "ready",
+  "moves": "8",
+  "stage": "validated",
+  "native": "libcombat.so"
+}
+```
+
+Stop the game with `Ctrl+C`, then remove the container and network with:
+
+```bash
+docker compose down --remove-orphans
+```
+
+The checked-in Compose service starts Python directly, runs as an unprivileged user, uses a read-only root filesystem, drops every Linux capability, enables `no-new-privileges`, and binds to `127.0.0.1` by default.
+
+# How to play
+
+## Objective
+
+Reduce the opponent from **100 health to 0**. Both fighters begin with **6 energy** and **0 guard**. If neither fighter wins by the end of round 50, the duel is a draw.
+
+## Choose a mode
+
+### Local 1v1
+
+Two players share one device. Trump selects and locks a move, then the device is passed to Shakespeare. The first selection remains hidden until the second player locks a move.
+
+### Online 1v1
+
+The creator receives Trump and a six-character room code. The joining player receives Shakespeare. Each player receives a separate high-entropy room token, and state updates are synchronized over WebSockets.
+
+The invitation URL contains only the room code. Player credentials are kept out of URLs.
+
+## What the statistics mean
+
+| Stat | Meaning |
+| --- | --- |
+| `DMG` | Base damage before Assembly applies random variation, critical hits, and guard |
+| `EN` | Energy spent when the move executes |
+| `ACC` | Percentage chance that a damaging move hits |
+| `SPD` | Priority added to the initiative roll |
+| `GRD` | Guard added to the attacker before damage resolves |
+| `HEAL` | Health restored, capped at 100 |
+
+A move can be selected only when its energy cost is affordable. Energy is deducted when the move executes, including when an attack misses.
+
+## Trump moves
+
+Trump's move values are executed from `trump_moves.tr`.
+
+| Move | DMG | EN | ACC | SPD | GRD | HEAL | Role |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Executive Order | 14 | 2 | 92% | 2 | 0 | 0 | Reliable general-purpose strike |
+| Tremendous Wall | 5 | 2 | 100% | 5 | 14 | 0 | Fast defensive action with guaranteed chip damage |
+| Covfefe Cannon | 22 | 4 | 75% | 0 | 0 | 0 | High-risk, high-damage attack |
+| Art of the Deal | 9 | 3 | 95% | 3 | 0 | 10 | Accurate attack combined with healing |
+
+## Shakespeare moves
+
+Shakespeare's values are executed from scenes inside `shakespeare_moves.spl`.
+
+| Move | DMG | EN | ACC | SPD | GRD | HEAL | Role |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Quill Thrust | 14 | 1 | 92% | 3 | 0 | 0 | Efficient, quick strike |
+| Tragic Monologue | 22 | 3 | 78% | 0 | 0 | 0 | Costly heavy attack |
+| Aside Parry | 7 | 2 | 100% | 4 | 12 | 0 | Fast defensive action |
+| Immortal Verse | 10 | 3 | 90% | 2 | 0 | 10 | Damage combined with healing |
+
+## How a round resolves
+
+1. **Both moves lock secretly.** The public state reveals only whether each fighter has locked an action, not which action was selected.
+2. **Assembly rolls initiative.** Each fighter receives a roll from 0 through 5.
+3. **SPL determines who acts first.** Move priority plus the initiative roll is passed to `stage_manager.spl`. An exact tie is broken by another Assembly roll.
+4. **The first move executes.** Its energy cost is deducted. Guard and healing are applied before its attack check.
+5. **Assembly checks accuracy.** A random value from 0 through 99 is compared with the move's accuracy.
+6. **Assembly computes damage on a hit.** Damage receives 90–110% variation. Rolls below 10 are critical hits and multiply damage by 1.5. Existing guard is subtracted, and a successful damaging hit deals at least 1 damage.
+7. **The second fighter acts only if still alive.** A fast knockout prevents the defeated fighter's selected move from executing.
+8. **SPL updates resources.** Each surviving fighter regains 2 energy up to a maximum of 10, and guard decays by 4.
+9. **The server broadcasts the authoritative state.** The next round begins unless someone won or round 50 produced a draw.
+
+Guard absorbs final damage and is also reduced by the incoming move's base damage. Guard itself is capped at 40.
+
+## Winning and rematches
+
+The first fighter to reduce the opponent to zero health wins immediately. In online mode, a rematch begins only after both players vote for it. In local mode, the single local controller can restart after the match ends.
+
+# Why every core language is essential
 
 | Responsibility | TrumpScript | Shakespeare SPL | Assembly |
 | --- | --- | --- | --- |
-| Trump move names, descriptions, costs, accuracy, speed, damage, guard, healing | Required | — | — |
+| Trump move names, descriptions and statistics | Required | — | — |
 | Shakespeare move statistics | — | Required | — |
 | Initiative comparison and round resource policy | — | Required | — |
-| Random sequence, hit decision, critical decision, final damage | — | — | Required |
+| Random sequence, hit decision, critical decision and final damage | — | — | Required |
 | Server validation and network orchestration | Python host | Python safe interpreter | Native library loaded with `ctypes` |
 
-The server refuses to start or tests fail when any of these language components is missing or invalid. The `.tr` and `.spl` programs are data only in the sense that all real programs are data to an interpreter: they are parsed, validated, and executed at runtime, and their results directly determine game behavior.
+The server refuses to start when a mandatory runtime is missing or invalid. The `.tr` and `.spl` programs are parsed, validated, executed at runtime, and directly determine game behavior.
 
-## Safe language runtimes
+## Safe TrumpScript runtime
 
-The project does **not** evaluate arbitrary Python, shell commands, or user-submitted source code.
-
-### TrumpScript
-
-`trump_moves.tr` uses a deterministic, speech-shaped subset derived from the original language:
+`trump_moves.tr` uses a deterministic, speech-shaped subset inspired by the original TrumpScript language:
 
 - case-insensitive `is` and `are` assignments;
-- natural multi-word identifiers such as `executive order damage`, normalized internally to `executive_order_damage`;
-- bounded speech prefixes including `Believe me,`, `Everybody knows`, `People are saying`, `Frankly,`, `We all know`, and `The truth is`;
-- bounded speech suffixes including `believe me`, `it's tremendous`, `very strong`, and `okay`;
+- natural multi-word identifiers such as `executive order damage`;
+- bounded prefixes including `Believe me,`, `Everybody knows`, `People are saying`, `Frankly,`, `We all know`, and `The truth is`;
+- bounded suffixes including `believe me`, `it's tremendous`, `very strong`, and `okay`;
 - `fact` and `lie` booleans;
-- million-scale integer rules;
+- integers strictly greater than one million, scaled down by one million for game values;
 - `say` and `tell` output;
 - the mandatory `America is great.` ending.
 
-For example:
+Example:
 
 ```text
 say "Folks, we have four tremendous moves. Nobody has moves like these."
@@ -64,13 +165,11 @@ Executive order guard is lie, believe me.
 America is great.
 ```
 
-The syntax is intentionally more speech-like than a configuration file, but remains fail-closed: arbitrary prose after the title is rejected rather than silently ignored. It is not a drop-in implementation of the complete upstream TrumpScript grammar.
+This is not a drop-in implementation of the complete upstream grammar. It remains deliberately fail-closed and never invokes `eval`, `exec`, shell commands, or user-submitted source.
 
-The archived upstream interpreter targets an older environment, compiles generated Python with `exec`, and includes platform-dependent joke restrictions and system checks. This project therefore provides a small production-safe interpreter instead of invoking the archived repository directly.
+## Safe Shakespeare Programming Language runtime
 
-### Shakespeare Programming Language
-
-The SPL runtime implements the constructs needed by the shipped programs:
+The SPL runtime implements the constructs required by the shipped programs:
 
 - Dramatis Personae variables and stacks;
 - Acts and Scenes;
@@ -80,137 +179,182 @@ The SPL runtime implements the constructs needed by the shipped programs:
 - `Remember` and `Recall` stack operations;
 - numeric and character output.
 
-`shakespeare_moves.spl` is the Bard's executable arsenal. `stage_manager.spl` is executed every round and returns the initiative delta and resource policy.
+`shakespeare_moves.spl` is the Bard's executable arsenal. `stage_manager.spl` is executed every round and returns initiative difference, energy regeneration, guard decay, and maximum energy.
 
-### Assembly
+## Native Assembly runtime
 
 Native GNU Assembly implementations are included for:
 
 - Linux x86-64 / AMD64;
 - Linux AArch64 / ARM64.
 
-The Docker build detects the target architecture and links the appropriate source into `libcombat.so`. There is deliberately no Python damage fallback; the Assembly layer is a hard runtime requirement.
+The Docker build detects the target architecture and links the corresponding source into `libcombat.so`. There is no Python combat fallback; the Assembly library is a hard startup dependency.
 
-## Run with Docker
+# Technical architecture
 
-```bash
-git clone https://github.com/Pepitodrop/TrumpVsShakespeare.git
-cd TrumpVsShakespeare
-docker compose up --build
+```text
+Mobile/Desktop Browser
+        │ HTTPS + WebSocket
+        ▼
+FastAPI room server
+        │
+        ├── executes trump_moves.tr
+        │      └── Trump move catalog
+        │
+        ├── executes shakespeare_moves.spl
+        │      └── Shakespeare move catalog
+        │
+        ├── executes stage_manager.spl every round
+        │      └── initiative + energy + guard policy
+        │
+        └── loads native/libcombat.so
+               └── Assembly RNG + hit + critical + damage
 ```
 
-Open `http://localhost:8000`.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the round protocol and trust boundaries.
 
-The container runs as an unprivileged user, drops Linux capabilities, uses a read-only filesystem, has a health check, and enables security headers.
+## Server-authoritative security model
 
-## Native development
+The browser cannot legitimately change health, damage, energy, guard, initiative, move ownership, or winner state. The server validates every submitted action.
 
-Linux or WSL is required for a non-Docker run because the native library is an ELF shared object.
+Room credentials are:
+
+- generated with Python's `secrets` module;
+- compared with constant-time comparisons;
+- sent in the HTTP `Authorization: Bearer` header;
+- negotiated through `Sec-WebSocket-Protocol` for WebSockets;
+- excluded from room URLs.
+
+WebSocket protections include:
+
+- same-origin or configured-origin validation;
+- authentication before acceptance;
+- maximum message size and queue depth;
+- idle timeout;
+- per-connection message-rate limit;
+- active socket limit per room;
+- serialized, time-bounded broadcasts;
+- cleanup of stale, expired, and shutdown connections.
+
+# Native development
+
+Linux or WSL is required because the native library is an ELF shared object.
 
 ```bash
 ./scripts/build_native.sh
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
+ruff check src tests
+ruff format --check src tests
 pytest
-trump-vs-shakespeare
+python -m trump_vs_shakespeare.cli
 ```
 
 Then open `http://localhost:8000`.
 
-## Deploy online
+# Production deployment
 
-Use the container behind a TLS-terminating reverse proxy such as Caddy, Traefik, or Nginx. WebSockets must be forwarded to `/ws/*` and the proxy must preserve the `Sec-WebSocket-Protocol` header.
+Use the container behind a TLS-terminating reverse proxy such as Caddy, Traefik, or Nginx. Forward WebSocket upgrades to `/ws/*` and preserve the `Sec-WebSocket-Protocol` header.
 
-Example environment:
+Example `.env` for a reverse proxy on the same host:
 
 ```env
+TVS_BIND_ADDRESS=127.0.0.1
 TVS_ALLOWED_ORIGINS=https://duel.example.com
 TVS_ROOM_TTL_SECONDS=7200
 TVS_MAX_ROOMS=1000
+TVS_MAX_SOCKETS_PER_ROOM=6
+TVS_SOCKET_SEND_TIMEOUT_SECONDS=3
+TVS_WS_IDLE_TIMEOUT_SECONDS=60
+TVS_WS_MESSAGES_PER_WINDOW=40
+TVS_WS_RATE_WINDOW_SECONDS=10
 TVS_ENABLE_DOCS=false
 FORWARDED_ALLOW_IPS=127.0.0.1
 WS_MAX_SIZE=65536
 WS_MAX_QUEUE=16
+KEEP_ALIVE_SECONDS=5
 ```
 
-Production notes:
+Production requirements:
 
-1. Keep the application at one worker and one replica because the room store is in memory.
-2. Terminate HTTPS at the reverse proxy so mobile browsers can install the web app and use secure WebSockets.
-3. Set `FORWARDED_ALLOW_IPS` only to the exact proxy IP or trusted CIDR. Never use `*` on an internet-facing deployment.
-4. Room tokens are transported in the HTTP `Authorization` header and WebSocket subprotocol rather than URLs. Do not configure the proxy to log those headers.
-5. Apply infrastructure-level rate limits to room creation and joining.
-6. Use a shared state backend and pub/sub before running multiple replicas.
-
-## Architecture
-
-```text
-Mobile/Desktop Browser
-        │ HTTPS + WebSocket
-        ▼
-FastAPI room server (Python integration host)
-        │
-        ├── executes assets/programs/trump_moves.tr
-        │      └── TrumpScript move catalog
-        │
-        ├── executes assets/programs/shakespeare_moves.spl
-        │      └── Shakespeare move catalog
-        │
-        ├── executes assets/programs/stage_manager.spl each round
-        │      └── initiative + resources + guard decay
-        │
-        └── calls native/libcombat.so
-               └── Assembly RNG + hit + critical + damage
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the round protocol and trust boundaries.
-
-## Tests and CI
-
-```bash
-./scripts/build_native.sh
-pytest
-```
-
-The suite verifies that:
-
-- TrumpScript supplies all Trump moves and accepts only the bounded speech-shaped syntax;
-- SPL supplies all Shakespeare moves;
-- SPL stage calculations affect round behavior;
-- Assembly is used for randomness, hit checks, and damage;
-- selected moves remain hidden until both players lock;
-- room tokens are rejected in URLs and accepted through the intended credentials;
-- local WebSocket rounds resolve end to end;
-- online rematches require both players;
-- local and online room creation work through the HTTP API.
-
-GitHub Actions tests Python 3.11 and 3.12, assembles the AArch64 source, builds and starts the hardened AMD64 production container, checks readiness, and cross-builds the ARM64 image.
+1. Run one worker and one replica because room state is held in memory.
+2. Terminate HTTPS at the reverse proxy for secure WebSockets and installable web-app behavior.
+3. Keep `TVS_BIND_ADDRESS=127.0.0.1` when the proxy runs on the same host. Expose a different bind only deliberately and behind a firewall.
+4. Set `FORWARDED_ALLOW_IPS` only to the exact proxy IP or trusted CIDR. Never use `*` on an internet-facing deployment.
+5. Do not log `Authorization` or `Sec-WebSocket-Protocol` headers.
+6. Apply infrastructure-level rate limits to room creation and joining.
+7. Communicate that active rooms disappear on application restart or deployment.
+8. Add shared state, distributed locking, and pub/sub before using multiple replicas.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TVS_ALLOWED_ORIGINS` | same origin | Comma-separated origins allowed for cross-origin HTTP and WebSocket access |
-| `TVS_ROOM_TTL_SECONDS` | `7200` | Idle room lifetime |
+| `TVS_BIND_ADDRESS` | `127.0.0.1` | Host address used by Docker Compose for port 8000 |
+| `TVS_ALLOWED_ORIGINS` | same origin | Comma-separated cross-origin HTTP and WebSocket origins |
+| `TVS_ROOM_TTL_SECONDS` | `7200` | Idle room lifetime; minimum 60 seconds |
 | `TVS_MAX_ROOMS` | `1000` | In-memory room limit |
+| `TVS_MAX_SOCKETS_PER_ROOM` | `6` | Maximum active WebSockets in one room |
+| `TVS_SOCKET_SEND_TIMEOUT_SECONDS` | `3` | Timeout for each WebSocket send or close |
+| `TVS_WS_IDLE_TIMEOUT_SECONDS` | `60` | Maximum time without a client WebSocket message |
+| `TVS_WS_MESSAGES_PER_WINDOW` | `40` | Maximum messages accepted per rate window |
+| `TVS_WS_RATE_WINDOW_SECONDS` | `10` | WebSocket rate-limit window |
 | `TVS_ENABLE_DOCS` | `false` | Enables `/api/docs` |
 | `TVS_NATIVE_LIB` | auto-discovered | Path to `libcombat.so` |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Exact trusted reverse-proxy IP or CIDR |
 | `WS_MAX_SIZE` | `65536` | Maximum WebSocket message size in bytes |
 | `WS_MAX_QUEUE` | `16` | Maximum queued WebSocket messages per connection |
+| `KEEP_ALIVE_SECONDS` | `5` | Uvicorn HTTP keep-alive timeout |
+| `HOST` | `0.0.0.0` | Address Uvicorn listens on inside the container |
+| `PORT` | `8000` | Uvicorn port inside the container |
 
-## Satire and content note
+# Tests and release gates
+
+```bash
+./scripts/build_native.sh
+ruff check src tests
+ruff format --check src tests
+pytest
+```
+
+GitHub Actions validates:
+
+- Python 3.11 and 3.12 installation, dependency integrity, lint, formatting, tests, and wheel builds;
+- executable TrumpScript and SPL catalogs;
+- SPL stage calculations;
+- native x86-64 combat execution and AArch64 Assembly syntax;
+- hidden action locking and authenticated HTTP/WebSocket flows;
+- serialized broadcasts, socket limits, expired-room cleanup, and graceful shutdown cleanup;
+- strict `pip-audit` and CycloneDX SBOM generation;
+- hardened AMD64 image startup with a read-only filesystem;
+- the actual checked-in Docker Compose startup path, homepage, favicon, and readiness endpoint;
+- ARM64 image construction through Buildx/QEMU.
+
+The release contract is documented in [RELEASE.md](RELEASE.md).
+
+# Supported scope and known limits
+
+Version 1.0.1 is production-certified only for modest single-node traffic with one process and ephemeral rooms. It is not certified for:
+
+- multiple workers or replicas;
+- persistent matches or match history;
+- zero-downtime migrations of active rooms;
+- high-traffic public operation without external rate limiting;
+- direct internet exposure without an HTTPS reverse proxy;
+- cryptographic use of the Assembly gameplay random generator.
+
+# Satire and content note
 
 This is fictional satire centered on public personas and literary characters. It does not claim that any dialogue or move is a real quotation, and it does not imply endorsement by Donald Trump, his organizations, William Shakespeare's estate, or the creators of the referenced programming languages.
 
-## Attribution
+# Attribution
 
 - TrumpScript by Sam Shadwell, Dan Korn, Chris Brown, and Cannon Lewis: <https://github.com/samshadwell/TrumpScript> (MIT License).
 - Shakespeare Programming Language was designed by Jon Åslund and Karl Wiberg. Language overview: <https://en.wikipedia.org/wiki/Shakespeare_Programming_Language>.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## License
+# License
 
 MIT. See [LICENSE](LICENSE).

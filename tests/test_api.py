@@ -10,11 +10,11 @@ def _authorization(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_health_readiness_security_and_local_room_flow() -> None:
+def test_health_readiness_static_assets_and_local_room_flow() -> None:
     with TestClient(create_app()) as client:
         health = client.get("/healthz")
         assert health.status_code == 200
-        assert health.json()["version"] == "1.0.0"
+        assert health.json()["version"] == "1.0.1"
 
         ready = client.get("/readyz")
         assert ready.status_code == 200
@@ -25,6 +25,13 @@ def test_health_readiness_security_and_local_room_flow() -> None:
         assert ready.headers["x-frame-options"] == "DENY"
         assert "connect-src 'self'" in ready.headers["content-security-policy"]
         assert " ws:" not in ready.headers["content-security-policy"]
+
+        home = client.get("/")
+        assert home.status_code == 200
+        assert 'rel="icon" href="/static/icon.svg"' in home.text
+        favicon = client.get("/favicon.ico")
+        assert favicon.status_code == 200
+        assert favicon.headers["content-type"].startswith("image/svg+xml")
 
         created = client.post("/api/rooms", json={"mode": "local"})
         assert created.status_code == 200

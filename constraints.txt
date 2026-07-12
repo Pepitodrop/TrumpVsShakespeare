@@ -1,4 +1,4 @@
-# Production dependency graph validated for v1.0.1 on Python 3.12.
+# Production dependency graph validated for v1.0.2 on Python 3.12.
 # Update intentionally and re-run CI, pip-audit, AMD64 smoke tests, Docker Compose smoke tests, and ARM64 builds.
 annotated-doc==0.0.4
 annotated-types==0.7.0

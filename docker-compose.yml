@@ -2,7 +2,7 @@ services:
   game:
     build:
       context: .
-    image: trump-vs-shakespeare:1.0.1
+    image: trump-vs-shakespeare:1.0.2
     restart: unless-stopped
     ports:
       - "${TVS_BIND_ADDRESS:-127.0.0.1}:8000:8000"

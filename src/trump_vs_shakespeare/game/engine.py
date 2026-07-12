@@ -21,6 +21,14 @@ class GameEngine:
         self.assembly = assembly
         self.moves = load_catalog()
         self.stage_runtime = ShakespeareRuntime()
+        policy = self._stage_manager(0, 0)
+        self.resource_policy = {
+            "max_health": self.MAX_HEALTH,
+            "max_energy": policy["Ophelia"],
+            "trump_energy_recovery": policy["Romeo"],
+            "shakespeare_energy_recovery": policy["Juliet"],
+            "guard_decay": policy["Hamlet"],
+        }
         self.seed = seed & 0xFFFFFFFFFFFFFFFF
         self.state = MatchState(
             room_code=room_code,
@@ -77,6 +85,7 @@ class GameEngine:
                 side: [move.public() for move in self.moves.values() if move.owner == side]
                 for side in ("trump", "shakespeare")
             },
+            "rules": self.resource_policy,
         }
 
     def _resolve_round(self) -> None:
@@ -121,6 +130,14 @@ class GameEngine:
             fighter = self.state.fighters[side]
             fighter.energy = min(max_energy, fighter.energy + initiative[regen_key])
             fighter.guard = max(0, fighter.guard - guard_decay)
+        self._log(
+            "system",
+            (
+                "Energy after recovery: "
+                f"Trump {self.state.fighters['trump'].energy}/{max_energy}, "
+                f"Shakespeare {self.state.fighters['shakespeare'].energy}/{max_energy}."
+            ),
+        )
         self.state.round += 1
 
     def _execute_move(self, side: Side, move: Move) -> None:

@@ -1,11 +1,11 @@
 "use strict";
-const CACHE = "tvs-v1.0.1";
+const CACHE = "tvs-v1.0.2";
 const STATIC = [
   "/",
-  "/favicon.ico",
-  "/static/icon.svg",
-  "/static/styles.css",
-  "/static/app.js",
+  "/favicon.ico?v=1.0.2",
+  "/static/icon.svg?v=1.0.2",
+  "/static/styles.css?v=1.0.2",
+  "/static/app.js?v=1.0.2",
   "/manifest.webmanifest",
 ];
 self.addEventListener("install", (event) =>

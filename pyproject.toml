@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trump-vs-shakespeare"
-version = "1.0.1"
+version = "1.0.2"
 description = "A production-ready 1v1 web game powered by TrumpScript, Shakespeare Programming Language, and Assembly."
 readme = "README.md"
 requires-python = ">=3.11"

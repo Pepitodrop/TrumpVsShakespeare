@@ -15,13 +15,19 @@ TrumpScript, Shakespeare Programming Language, and Assembly are execution depend
 7. On a hit, native Assembly applies variance, critical-hit multiplication, guard reduction, and minimum damage.
 8. The server applies health, guard, healing, and win conditions.
 9. The SPL stage policy updates resources for the next round.
-10. The authoritative state is broadcast to both clients over WebSockets.
+10. The server records the post-recovery energy totals and broadcasts the authoritative state to both clients over WebSockets.
+
+## Public state
+
+The public match state contains health, energy, guard, pending-action flags, move metadata, the public chronicle, and a read-only rules object. The rules object exposes maximum health, maximum energy, per-side energy recovery, and guard decay so the browser displays the same policy the server enforces.
+
+Selected move identifiers are never exposed until the round resolves. A waiting online room exposes no battlefield UI until the second player joins.
 
 ## Trust boundaries
 
 ### Browser
 
-Untrusted. It can request room creation, room joining, and actions. It cannot submit damage, health, energy, priority, or arbitrary source code.
+Untrusted. It can request room creation, room joining, and actions. It cannot submit damage, health, energy, priority, resource policy, or arbitrary source code.
 
 ### Python integration host
 
@@ -43,9 +49,15 @@ Trusted native code. It controls the random stream, hit decisions, critical hits
 
 Rooms use high-entropy player tokens and six-character human-readable room codes. The creator controls Trump; the joining player controls Shakespeare. Local rooms issue one token controlling both sides. Tokens are kept in browser `sessionStorage` and rooms expire after inactivity.
 
-The v1.0.1 room store is process-local. This avoids pretending that a stateless multi-worker deployment is safe. Horizontal scaling requires an external state store, distributed locks, and pub/sub broadcasts.
+The v1.0.2 room store is process-local. This avoids pretending that a stateless multi-worker deployment is safe. Horizontal scaling requires an external state store, distributed locks, and pub/sub broadcasts.
 
 Expired rooms are removed under the room-manager lock, but their WebSockets are closed outside the lock. The same close path is used during graceful application shutdown so stale connections are not left open while the process exits.
+
+## Frontend state model
+
+The lobby and arena are mutually exclusive. A global `[hidden]` rule prevents component display declarations from overriding semantic visibility. Inside the arena, waiting rooms display only the invitation panel; fighter cards and moves appear after the second player joins.
+
+Versioned favicon, stylesheet, and JavaScript URLs plus a versioned service-worker cache prevent stale v1.0.1 assets from masking the v1.0.2 interface.
 
 ## Container model
 

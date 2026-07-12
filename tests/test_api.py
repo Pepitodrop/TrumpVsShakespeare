@@ -14,7 +14,7 @@ def test_health_readiness_static_assets_and_local_room_flow() -> None:
     with TestClient(create_app()) as client:
         health = client.get("/healthz")
         assert health.status_code == 200
-        assert health.json()["version"] == "1.0.1"
+        assert health.json()["version"] == "1.0.2"
 
         ready = client.get("/readyz")
         assert ready.status_code == 200
@@ -28,8 +28,16 @@ def test_health_readiness_static_assets_and_local_room_flow() -> None:
 
         home = client.get("/")
         assert home.status_code == 200
-        assert 'rel="icon" href="/static/icon.svg"' in home.text
-        favicon = client.get("/favicon.ico")
+        assert 'rel="icon" href="/static/icon.svg?v=1.0.2"' in home.text
+        assert 'id="runtime-title"' in home.text
+        assert 'id="waitingPanel"' in home.text
+        assert 'id="battleContent" hidden' in home.text
+
+        styles = client.get("/static/styles.css?v=1.0.2")
+        assert styles.status_code == 200
+        assert "[hidden] { display: none !important; }" in styles.text
+
+        favicon = client.get("/favicon.ico?v=1.0.2")
         assert favicon.status_code == 200
         assert favicon.headers["content-type"].startswith("image/svg+xml")
 
@@ -38,6 +46,8 @@ def test_health_readiness_static_assets_and_local_room_flow() -> None:
         assert created.headers["cache-control"] == "no-store"
         payload = created.json()
         assert payload["state"]["status"] == "playing"
+        assert payload["state"]["rules"]["max_energy"] == 10
+        assert payload["state"]["rules"]["trump_energy_recovery"] == 2
         assert set(payload["controlled_sides"]) == {"trump", "shakespeare"}
 
         unauthenticated = client.get(f"/api/rooms/{payload['room_code']}")
@@ -81,6 +91,8 @@ def test_local_websocket_resolves_a_round_without_exposing_token_in_url() -> Non
             socket.send_json({"type": "action", "actor": "shakespeare", "move_id": "quill_thrust"})
             resolved = socket.receive_json()
             assert resolved["state"]["round"] == 2
+            assert resolved["state"]["fighters"]["trump"]["energy"] == 6
+            assert resolved["state"]["fighters"]["shakespeare"]["energy"] == 7
             assert not any(resolved["state"]["pending"].values())
 
 

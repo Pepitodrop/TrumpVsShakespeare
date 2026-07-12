@@ -123,6 +123,7 @@ def create_app() -> FastAPI:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            await manager.shutdown()
 
     app = FastAPI(
         title="Trump vs. Shakespeare",
@@ -344,6 +345,10 @@ def create_app() -> FastAPI:
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker() -> FileResponse:
         return FileResponse(STATIC_DIR / "sw.js", media_type="application/javascript")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(STATIC_DIR / "icon.svg", media_type="image/svg+xml")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

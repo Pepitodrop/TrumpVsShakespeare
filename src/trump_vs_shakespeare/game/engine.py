@@ -94,7 +94,11 @@ class GameEngine:
         elif delta < 0:
             order = (("shakespeare", shakespeare_move), ("trump", trump_move))
         else:
-            order = (("trump", trump_move), ("shakespeare", shakespeare_move)) if self._roll(2) == 0 else (("shakespeare", shakespeare_move), ("trump", trump_move))
+            order = (
+                (("trump", trump_move), ("shakespeare", shakespeare_move))
+                if self._roll(2) == 0
+                else (("shakespeare", shakespeare_move), ("trump", trump_move))
+            )
 
         self._log("system", f"Round {self.state.round}: {self._display(order[0][0])} has the initiative.")
         for side, move in order:

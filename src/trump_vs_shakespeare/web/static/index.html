@@ -6,26 +6,51 @@
   <meta name="theme-color" content="#131722">
   <meta name="description" content="A simultaneous-turn 1v1 duel powered by TrumpScript, Shakespeare Programming Language, and Assembly.">
   <title>Trump vs. Shakespeare</title>
-  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/icon.svg?v=1.0.2" type="image/svg+xml">
+  <link rel="shortcut icon" href="/favicon.ico?v=1.0.2">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/static/styles.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=1.0.2">
+  <script src="/static/app.js?v=1.0.2" defer></script>
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
   <header class="site-header">
     <a class="brand" href="/" aria-label="Trump versus Shakespeare home">
-      <span class="brand-mark">T<span>VS</span>S</span>
+      <span class="brand-mark" aria-hidden="true">
+        <span class="brand-trump">T</span><span class="brand-versus">vs</span><span class="brand-bard">S</span>
+      </span>
       <span>Trump vs. Shakespeare</span>
     </a>
-    <span class="version">v1.0.1</span>
+    <span class="version">v1.0.2</span>
   </header>
 
   <main>
     <section id="lobby" class="lobby panel" aria-labelledby="lobby-title">
       <div class="eyebrow">A computational battle of words</div>
       <h1 id="lobby-title"><span class="gold">The Deal</span> meets <span class="crimson">The Bard</span></h1>
-      <p class="lead">Choose actions in secret. TrumpScript arms Trump, Shakespeare Programming Language directs the Bard and the stage, and native Assembly resolves every hit.</p>
+      <p class="lead">Choose actions in secret. The server combines three unusual programming languages to resolve every round.</p>
+
+      <section class="runtime-guide" aria-labelledby="runtime-title">
+        <h2 id="runtime-title">What powers the duel?</h2>
+        <div class="runtime-grid">
+          <article>
+            <b class="runtime-extension">.tr</b>
+            <strong>TrumpScript</strong>
+            <span>Defines Trump's move names, costs, accuracy, damage, guard, and healing.</span>
+          </article>
+          <article>
+            <b class="runtime-extension">.spl</b>
+            <strong>Shakespeare SPL</strong>
+            <span>Defines Shakespeare's moves and directs initiative, energy recovery, and guard decay.</span>
+          </article>
+          <article>
+            <b class="runtime-extension">.S</b>
+            <strong>Assembly</strong>
+            <span>Generates combat randomness and performs hit, critical-hit, and final-damage calculations.</span>
+          </article>
+        </div>
+        <p>Python and FastAPI securely connect the runtimes, validate every action, and synchronize online rooms.</p>
+      </section>
 
       <div class="mode-grid">
         <button id="localBtn" class="mode-card" type="button">
@@ -49,12 +74,6 @@
         <small id="joinHelp">No account or installation required.</small>
       </form>
       <p id="lobbyError" class="error" role="alert" hidden></p>
-
-      <div class="language-strip" aria-label="Core runtimes">
-        <span><b>.tr</b> TrumpScript</span>
-        <span><b>.spl</b> Shakespeare</span>
-        <span><b>.S</b> Assembly</span>
-      </div>
     </section>
 
     <section id="arena" class="arena" hidden aria-live="polite">
@@ -65,46 +84,61 @@
         </div>
         <div class="arena-actions">
           <span id="connection" class="connection">Connecting…</span>
+          <span id="shareStatus" class="share-status" aria-live="polite"></span>
           <button id="shareBtn" class="secondary" type="button">Share room</button>
           <button id="leaveBtn" class="secondary" type="button">Leave</button>
         </div>
       </div>
 
-      <div class="battlefield">
-        <article id="trumpCard" class="fighter fighter-trump panel">
-          <div class="fighter-heading">
-            <div class="portrait trump-portrait" aria-hidden="true">T</div>
-            <div><span class="faction">TrumpScript</span><h3>Trump</h3></div>
-            <span id="trumpPending" class="locked" hidden>Locked</span>
-          </div>
-          <div class="stat"><span>Health</span><b id="trumpHealthText">100 / 100</b></div>
-          <div class="meter health"><i id="trumpHealth"></i></div>
-          <div class="resources"><span>Energy <b id="trumpEnergy">6</b></span><span>Guard <b id="trumpGuard">0</b></span></div>
-          <div id="trumpMoves" class="moves"></div>
-        </article>
-
-        <div class="versus" aria-hidden="true"><span>VS</span><small id="roundLabel">ROUND 1</small></div>
-
-        <article id="shakespeareCard" class="fighter fighter-shakespeare panel">
-          <div class="fighter-heading">
-            <div class="portrait bard-portrait" aria-hidden="true">S</div>
-            <div><span class="faction">Shakespeare SPL</span><h3>Shakespeare</h3></div>
-            <span id="shakespearePending" class="locked" hidden>Locked</span>
-          </div>
-          <div class="stat"><span>Health</span><b id="shakespeareHealthText">100 / 100</b></div>
-          <div class="meter health"><i id="shakespeareHealth"></i></div>
-          <div class="resources"><span>Energy <b id="shakespeareEnergy">6</b></span><span>Guard <b id="shakespeareGuard">0</b></span></div>
-          <div id="shakespeareMoves" class="moves"></div>
-        </article>
-      </div>
-
-      <section class="commentary panel" aria-labelledby="commentaryTitle">
-        <div class="commentary-head">
-          <h3 id="commentaryTitle">The Chronicle</h3>
-          <button id="restartBtn" class="primary" type="button" hidden>Play again</button>
+      <section id="waitingPanel" class="waiting-panel panel" hidden>
+        <div class="waiting-symbol" aria-hidden="true">⌛</div>
+        <div>
+          <h3>Waiting for the second player</h3>
+          <p>Share the room code or invite link. The fighters and moves appear only after Shakespeare joins.</p>
         </div>
-        <ol id="battleLog"></ol>
       </section>
+
+      <div id="battleContent" hidden>
+        <div class="battlefield">
+          <article id="trumpCard" class="fighter fighter-trump panel">
+            <div class="fighter-heading">
+              <div class="portrait trump-portrait" aria-hidden="true">T</div>
+              <div><span class="faction">TrumpScript</span><h3>Trump</h3></div>
+              <span id="trumpPending" class="locked" hidden>Locked</span>
+            </div>
+            <div class="stat"><span>Health</span><b id="trumpHealthText">100 / 100</b></div>
+            <div class="meter health"><i id="trumpHealth"></i></div>
+            <div class="energy-heading"><span>Energy</span><b id="trumpEnergy">6 / 10</b></div>
+            <div class="meter energy"><i id="trumpEnergyBar"></i></div>
+            <div class="resource-note"><span id="trumpRecovery">+2 after each resolved round</span><span>Guard <b id="trumpGuard">0</b></span></div>
+            <div id="trumpMoves" class="moves"></div>
+          </article>
+
+          <div class="versus" aria-hidden="true"><span>VS</span><small id="roundLabel">ROUND 1</small></div>
+
+          <article id="shakespeareCard" class="fighter fighter-shakespeare panel">
+            <div class="fighter-heading">
+              <div class="portrait bard-portrait" aria-hidden="true">S</div>
+              <div><span class="faction">Shakespeare SPL</span><h3>Shakespeare</h3></div>
+              <span id="shakespearePending" class="locked" hidden>Locked</span>
+            </div>
+            <div class="stat"><span>Health</span><b id="shakespeareHealthText">100 / 100</b></div>
+            <div class="meter health"><i id="shakespeareHealth"></i></div>
+            <div class="energy-heading"><span>Energy</span><b id="shakespeareEnergy">6 / 10</b></div>
+            <div class="meter energy"><i id="shakespeareEnergyBar"></i></div>
+            <div class="resource-note"><span id="shakespeareRecovery">+2 after each resolved round</span><span>Guard <b id="shakespeareGuard">0</b></span></div>
+            <div id="shakespeareMoves" class="moves"></div>
+          </article>
+        </div>
+
+        <section class="commentary panel" aria-labelledby="commentaryTitle">
+          <div class="commentary-head">
+            <h3 id="commentaryTitle">The Chronicle</h3>
+            <button id="restartBtn" class="primary" type="button" hidden>Play again</button>
+          </div>
+          <ol id="battleLog"></ol>
+        </section>
+      </div>
       <p id="gameError" class="error floating-error" role="alert" hidden></p>
     </section>
   </main>

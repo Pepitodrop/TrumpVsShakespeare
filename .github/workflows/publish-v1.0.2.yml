@@ -1,0 +1,75 @@
+name: Publish v1.0.2
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the certified commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify release version
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+          if version != '1.0.2':
+              raise SystemExit(f'Expected version 1.0.2, found {version}')
+          PY
+
+      - name: Create annotated tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/v1.0.2 >/dev/null 2>&1; then
+            echo "v1.0.2 already exists; nothing to publish."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a v1.0.2 "$RELEASE_SHA" -m "Trump vs. Shakespeare v1.0.2"
+          git push origin v1.0.2
+
+          cat > /tmp/release-notes.md <<'EOF'
+          ## Trump vs. Shakespeare v1.0.2
+
+          Visible UI and gameplay-clarity correction release.
+
+          ### Highlights
+
+          - Fixed the lobby and arena appearing at the same time.
+          - Hide the battlefield while an online room is waiting for its second player.
+          - Rebuilt the header logo and refreshed the browser-tab icon.
+          - Added an on-page explanation of TrumpScript, Shakespeare SPL, Assembly, and Python/FastAPI.
+          - Added authoritative energy meters, recovery labels, unavailable-move explanations, and end-of-round energy summaries.
+          - Cache-busted the frontend assets so older service-worker content cannot mask the fixes.
+          - Retained the complete Python, security, Docker Compose, AMD64, and ARM64 certification gates.
+
+          ### Certified scope
+
+          One worker, one replica, HTTPS reverse proxy, ephemeral in-memory rooms, modest traffic, and infrastructure-level rate limiting.
+          EOF
+
+          gh release create v1.0.2 \
+            --verify-tag \
+            --title "Trump vs. Shakespeare v1.0.2" \
+            --notes-file /tmp/release-notes.md

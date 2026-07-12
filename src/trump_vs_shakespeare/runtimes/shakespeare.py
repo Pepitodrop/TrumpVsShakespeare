@@ -11,7 +11,16 @@ class ShakespeareRuntimeError(ValueError):
 
 
 _POSITIVE_NOUNS = {
-    "hero", "king", "kingdom", "rose", "summer", "heaven", "angel", "friend", "lord", "lady",
+    "hero",
+    "king",
+    "kingdom",
+    "rose",
+    "summer",
+    "heaven",
+    "angel",
+    "friend",
+    "lord",
+    "lady",
 }
 _NEGATIVE_NOUNS = {"coward", "villain", "devil", "pig", "toad", "worm", "curse"}
 _ARTICLES = {"a", "an", "the", "my", "your", "thy", "his", "her", "its"}
@@ -140,15 +149,11 @@ class ShakespeareRuntime:
     _enter = re.compile(r"^\[Enter\s+(.+)\]$", re.IGNORECASE)
     _exit = re.compile(r"^\[Exit\s+(.+)\]$", re.IGNORECASE)
     _exeunt = re.compile(r"^\[Exeunt(?:\s+(.+))?\]$", re.IGNORECASE)
-    _assignment = re.compile(
-        r"^(?:You|Thou|Thee)\s+(?:are|art)(?:\s+as\s+.+?\s+as)?\s+(.+)$", re.IGNORECASE
-    )
+    _assignment = re.compile(r"^(?:You|Thou|Thee)\s+(?:are|art)(?:\s+as\s+.+?\s+as)?\s+(.+)$", re.IGNORECASE)
     _remember = re.compile(r"^Remember\s+(.+)$", re.IGNORECASE)
     _recall = re.compile(r"^Recall\b.*$", re.IGNORECASE)
 
-    def execute_file(
-        self, path: str | Path, initial: dict[str, int] | None = None
-    ) -> ShakespeareResult:
+    def execute_file(self, path: str | Path, initial: dict[str, int] | None = None) -> ShakespeareResult:
         return self.execute(Path(path).read_text(encoding="utf-8"), initial=initial)
 
     def execute(self, source: str, initial: dict[str, int] | None = None) -> ShakespeareResult:

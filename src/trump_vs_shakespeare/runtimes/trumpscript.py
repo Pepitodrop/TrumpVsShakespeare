@@ -10,8 +10,24 @@ class TrumpScriptError(ValueError):
     """Raised when the safe TrumpScript subset rejects a program."""
 
 
-_ASSIGNMENT = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)\s+(?:is|are)\s+(.+?)[.!]?$", re.IGNORECASE)
+_ASSIGNMENT = re.compile(
+    r"^([A-Za-z][A-Za-z0-9_]*(?:[ -][A-Za-z0-9_]+)*)\s+(?:is|are)\s+(.+?)$",
+    re.IGNORECASE,
+)
 _SAY = re.compile(r'^(?:say|tell)\s+"(.*)"[.!]?$', re.IGNORECASE)
+_SPEECH_PREFIXES = (
+    "believe me,",
+    "everybody knows",
+    "everyone knows",
+    "people are saying",
+    "frankly,",
+    "we all know",
+    "the truth is",
+)
+_SPEECH_SUFFIX = re.compile(
+    r",\s*(?:believe me|it(?:'|’)s tremendous|it is tremendous|very strong|okay)[.!]?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +36,7 @@ class TrumpProgram:
     output: tuple[str, ...]
 
     def get(self, name: str) -> Any:
-        key = name.casefold()
+        key = _canonical_name(name)
         if key not in self.values:
             raise TrumpScriptError(f"TrumpScript variable is missing: {name}")
         return self.values[key]
@@ -38,8 +54,9 @@ class TrumpScriptRuntime:
     """Deterministic, non-eval interpreter for the TrumpScript subset used by the game.
 
     It deliberately supports the original language's case-insensitive assignments,
-    fact/lie booleans, say/tell output, million-scale integers, and mandatory closing
-    declaration. It never executes Python source or arbitrary host commands.
+    fact/lie booleans, say/tell output, million-scale integers, mandatory closing
+    declaration, and tightly bounded speech-like phrasing. It never executes Python
+    source or arbitrary host commands.
     """
 
     def execute_file(self, path: str | Path) -> TrumpProgram:
@@ -62,15 +79,15 @@ class TrumpScriptRuntime:
                 output.append(say.group(1))
                 continue
 
-            assignment = _ASSIGNMENT.match(line)
+            assignment = _speech_assignment(line)
             if not assignment:
                 if index == 1:
                     continue
                 raise TrumpScriptError(f"Unsupported TrumpScript statement on line {index}: {line}")
 
-            name, raw = assignment.groups()
-            key = name.casefold()
-            values[key] = self._value(raw.strip(), values, index)
+            name, raw = assignment
+            key = _canonical_name(name)
+            values[key] = self._value(raw, values, index)
 
         return TrumpProgram(values=values, output=tuple(output))
 
@@ -91,6 +108,26 @@ class TrumpScriptRuntime:
                     f"TrumpScript integer on line {line} must be strictly greater than one million"
                 )
             return value
-        if folded in values:
-            return values[folded]
+        reference = _canonical_name(raw)
+        if reference in values:
+            return values[reference]
         raise TrumpScriptError(f"Unknown TrumpScript value on line {line}: {raw}")
+
+
+def _speech_assignment(line: str) -> tuple[str, str] | None:
+    candidate = line.strip()
+    folded = candidate.casefold()
+    for prefix in _SPEECH_PREFIXES:
+        if folded.startswith(prefix):
+            candidate = candidate[len(prefix) :].lstrip(" ,")
+            break
+
+    candidate = _SPEECH_SUFFIX.sub("", candidate).rstrip(".!").strip()
+    match = _ASSIGNMENT.match(candidate)
+    if not match:
+        return None
+    return match.group(1), match.group(2).strip()
+
+
+def _canonical_name(name: str) -> str:
+    return re.sub(r"[\s-]+", "_", name.strip()).casefold()

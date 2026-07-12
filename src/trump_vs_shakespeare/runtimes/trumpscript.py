@@ -64,9 +64,7 @@ class TrumpScriptRuntime:
 
     def execute(self, source: str) -> TrumpProgram:
         meaningful = [
-            line.strip()
-            for line in source.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
+            line.strip() for line in source.splitlines() if line.strip() and not line.lstrip().startswith("#")
         ]
         if not meaningful or meaningful[-1].rstrip(".").casefold() != "america is great":
             raise TrumpScriptError('Every program must end with "America is great."')

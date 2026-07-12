@@ -43,7 +43,15 @@ Trusted native code. It controls the random stream, hit decisions, critical hits
 
 Rooms use high-entropy player tokens and six-character human-readable room codes. The creator controls Trump; the joining player controls Shakespeare. Local rooms issue one token controlling both sides. Tokens are kept in browser `sessionStorage` and rooms expire after inactivity.
 
-The v1.0.0 room store is process-local. This avoids pretending that a stateless multi-worker deployment is safe. Horizontal scaling requires an external state store, distributed locks, and pub/sub broadcasts.
+The v1.0.1 room store is process-local. This avoids pretending that a stateless multi-worker deployment is safe. Horizontal scaling requires an external state store, distributed locks, and pub/sub broadcasts.
+
+Expired rooms are removed under the room-manager lock, but their WebSockets are closed outside the lock. The same close path is used during graceful application shutdown so stale connections are not left open while the process exits.
+
+## Container model
+
+The production image runs as the unprivileged `game` user and starts the application through the Python module entry point. Docker Compose keeps the root filesystem read-only, provides a small `/tmp` tmpfs, drops all Linux capabilities, enables `no-new-privileges`, and binds port 8000 to loopback by default.
+
+The container intentionally does not rely on Docker's injected init wrapper. Uvicorn is the single foreground process and receives termination signals directly.
 
 ## Failure behavior
 
@@ -52,4 +60,5 @@ The v1.0.0 room store is process-local. This avoids pretending that a stateless 
 - Invalid room token: request or WebSocket connection is rejected.
 - Duplicate action: rejected without changing state.
 - Insufficient energy or wrong move ownership: rejected by the server.
-- Room inactivity: room is removed by the cleanup task.
+- Room inactivity: the room is removed and its WebSockets are closed with code `4408`.
+- Application shutdown: active room WebSockets are closed with code `1012` before process exit.

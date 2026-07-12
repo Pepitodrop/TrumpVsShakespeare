@@ -40,12 +40,19 @@ jobs:
         id: formatting
         continue-on-error: true
         run: ruff format --check src tests > /tmp/ruff-format.log 2>&1
+      - name: Generate canonical formatting patch
+        if: steps.formatting.outcome == 'failure'
+        run: |
+          ruff format src tests
+          git diff -- src tests > /tmp/ruff-format.patch
       - name: Upload formatting diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ruff-format-${{ matrix.python-version }}
-          path: /tmp/ruff-format.log
+          path: |
+            /tmp/ruff-format.log
+            /tmp/ruff-format.patch
           retention-days: 3
       - name: Report formatting failure
         if: steps.formatting.outcome == 'failure'

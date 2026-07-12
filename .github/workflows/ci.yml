@@ -36,6 +36,8 @@ jobs:
         run: python -m pip check
       - name: Lint
         run: ruff check src tests
+      - name: Check formatting
+        run: ruff format --check src tests
       - name: Test
         run: pytest
       - name: Build Python wheel
@@ -56,7 +58,7 @@ jobs:
       - name: Upload audited SBOM
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: v1-production-sbom
+          name: v1.0.1-production-sbom
           path: sbom.cdx.json
           retention-days: 30
 
@@ -85,11 +87,12 @@ jobs:
           test "$(docker image inspect trump-vs-shakespeare:ci --format '{{.Config.User}}')" = "game"
           test "$(docker image inspect trump-vs-shakespeare:ci --format '{{json .Config.Healthcheck.Test}}')" != "null"
           test "$(docker image inspect trump-vs-shakespeare:ci --format '{{.Config.WorkingDir}}')" = "/app"
+          test "$(docker image inspect trump-vs-shakespeare:ci --format '{{json .Config.Cmd}}')" = '["/opt/venv/bin/python","-m","trump_vs_shakespeare.cli"]'
       - name: Verify pinned runtime graph
         run: |
           docker run --rm --entrypoint python trump-vs-shakespeare:ci -m pip check
           docker run --rm --entrypoint python trump-vs-shakespeare:ci -c \
-            "from trump_vs_shakespeare import __version__; assert __version__ == '1.0.0'"
+            "from trump_vs_shakespeare import __version__; assert __version__ == '1.0.1'"
       - name: Smoke-test production image
         run: |
           set -eu
@@ -105,6 +108,31 @@ jobs:
             sleep 1
           done
           echo "Container did not become ready" >&2
+          exit 1
+      - name: Smoke-test checked-in Docker Compose path
+        run: |
+          set -eu
+          cleanup() {
+            docker compose logs || true
+            docker compose down --remove-orphans --volumes >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker compose up --build --detach
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/readyz >/tmp/compose-ready.json; then
+              grep -q '"status":"ready"' /tmp/compose-ready.json
+              curl --fail --silent --show-error http://127.0.0.1:8000/ >/dev/null
+              curl --fail --silent --show-error http://127.0.0.1:8000/favicon.ico >/dev/null
+              container_id="$(docker compose ps -q game)"
+              test -n "$container_id"
+              test "$(docker inspect "$container_id" --format '{{.State.Running}}')" = "true"
+              test "$(docker inspect "$container_id" --format '{{.HostConfig.ReadonlyRootfs}}')" = "true"
+              test "$(docker inspect "$container_id" --format '{{json .HostConfig.CapDrop}}')" = '["ALL"]'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Docker Compose service did not become ready" >&2
           exit 1
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f

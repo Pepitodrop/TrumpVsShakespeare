@@ -65,20 +65,25 @@ class RoomManager:
     async def create(self, mode: RoomMode) -> tuple[Room, str]:
         if mode not in {"local", "online"}:
             raise RoomError("Mode must be local or online")
-        async with self._lock:
-            self._purge_locked()
-            if len(self.rooms) >= self.max_rooms:
-                raise RoomError("The server is at room capacity")
-            code = self._new_code()
-            token = secrets.token_urlsafe(32)
-            engine = GameEngine(code, self.assembly, secrets.randbits(64))
-            room = Room(code=code, mode=mode, engine=engine)
-            room.seats["trump"] = token
-            if mode == "local":
-                room.seats["shakespeare"] = token
-                engine.start()
-            self.rooms[code] = room
-            return room, token
+
+        expired: list[Room] = []
+        try:
+            async with self._lock:
+                expired = self._purge_locked()
+                if len(self.rooms) >= self.max_rooms:
+                    raise RoomError("The server is at room capacity")
+                code = self._new_code()
+                token = secrets.token_urlsafe(32)
+                engine = GameEngine(code, self.assembly, secrets.randbits(64))
+                room = Room(code=code, mode=mode, engine=engine)
+                room.seats["trump"] = token
+                if mode == "local":
+                    room.seats["shakespeare"] = token
+                    engine.start()
+                self.rooms[code] = room
+                return room, token
+        finally:
+            await self._close_rooms(expired, code=4408)
 
     async def join(self, code: str) -> tuple[Room, str]:
         async with self._lock:
@@ -195,10 +200,13 @@ class RoomManager:
     async def cleanup(self) -> None:
         async with self._lock:
             expired = self._purge_locked()
-        for room in expired:
-            for socket in list(room.sockets):
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(socket.close(code=4408), timeout=self.send_timeout_seconds)
+        await self._close_rooms(expired, code=4408)
+
+    async def shutdown(self) -> None:
+        async with self._lock:
+            rooms = list(self.rooms.values())
+            self.rooms.clear()
+        await self._close_rooms(rooms, code=1012)
 
     def snapshot_for(self, room: Room, token: str) -> dict[str, object]:
         return self._snapshot(room, room.sides_for(token))
@@ -231,3 +239,14 @@ class RoomManager:
         for room in expired:
             self.rooms.pop(room.code, None)
         return expired
+
+    async def _close_rooms(self, rooms: list[Room], code: int) -> None:
+        for room in rooms:
+            sockets = list(room.sockets)
+            room.sockets.clear()
+            for socket in sockets:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(
+                        socket.close(code=code),
+                        timeout=self.send_timeout_seconds,
+                    )

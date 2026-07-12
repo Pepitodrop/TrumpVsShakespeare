@@ -58,7 +58,7 @@ jobs:
       - name: Upload audited SBOM
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: v1.0.1-production-sbom
+          name: v1.0.2-production-sbom
           path: sbom.cdx.json
           retention-days: 30
 
@@ -92,7 +92,7 @@ jobs:
         run: |
           docker run --rm --entrypoint python trump-vs-shakespeare:ci -m pip check
           docker run --rm --entrypoint python trump-vs-shakespeare:ci -c \
-            "from trump_vs_shakespeare import __version__; assert __version__ == '1.0.1'"
+            "from trump_vs_shakespeare import __version__; assert __version__ == '1.0.2'"
       - name: Smoke-test production image
         run: |
           set -eu
@@ -121,7 +121,9 @@ jobs:
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error http://127.0.0.1:8000/readyz >/tmp/compose-ready.json; then
               grep -q '"status":"ready"' /tmp/compose-ready.json
-              curl --fail --silent --show-error http://127.0.0.1:8000/ >/dev/null
+              curl --fail --silent --show-error http://127.0.0.1:8000/ >/tmp/home.html
+              grep -q 'What powers the duel?' /tmp/home.html
+              grep -q 'v1.0.2' /tmp/home.html
               curl --fail --silent --show-error http://127.0.0.1:8000/favicon.ico >/dev/null
               container_id="$(docker compose ps -q game)"
               test -n "$container_id"

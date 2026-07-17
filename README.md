@@ -1,5 +1,7 @@
 # Trump vs. Shakespeare
 
+Play this game online at **[game.luisbenedikt.de](https://game.luisbenedikt.de/)**.
+
 A server-authoritative, simultaneous-turn 1v1 browser game in which Trump and Shakespeare secretly choose actions and let three mandatory execution layers resolve the debate:
 
 - **TrumpScript (`.tr`)** defines and executes Trump's complete move catalog.
